@@ -1,46 +1,54 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using crud_App.Data;
+using crud_App.Models;
 
-[ApiController]
-[Route("api/[controller]")]
-public class GoalsController : ControllerBase
+namespace crud_App.Controllers
 {
-    private readonly AppDbContext _context;
-
-    public GoalsController(AppDbContext context)
+    [Route("api/[controller]")]
+    [ApiController]
+    public class GoalsController : ControllerBase
     {
-        _context = context;
-    }
+        private readonly GoalDbContext _context;
 
-    [HttpGet]
-    public async Task<ActionResult<IEnumerable<Goal>>> GetGoals() => await _context.Goals.ToListAsync();
+        public GoalsController(GoalDbContext context)
+        {
+            _context = context;
+        }
 
-    [HttpPost]
-    public async Task<IActionResult> AddGoal(Goal goal)
-    {
-        _context.Goals.Add(goal);
-        await _context.SaveChangesAsync();
-        return Ok(goal);
-    }
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Goal>>> GetGoals()
+        {
+            return await _context.GOAL_TRACKER.ToListAsync();
+        }
 
-    [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateGoal(int id, Goal updated)
-    {
-        var goal = await _context.Goals.FindAsync(id);
-        if (goal == null) return NotFound();
+        [HttpPost]
+        public async Task<ActionResult<Goal>> AddGoal(Goal goal)
+        {
+            _context.GOAL_TRACKER.Add(goal);
+            await _context.SaveChangesAsync();
+            return CreatedAtAction(nameof(GetGoals), new { id = goal.Id }, goal);
+        }
 
-        goal.GoalText = updated.GoalText;
-        goal.IsCompleted = updated.IsCompleted;
-        await _context.SaveChangesAsync();
-        return NoContent();
-    }
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateGoal(int id, Goal goal)
+        {
+            if (id != goal.Id) return BadRequest();
 
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteGoal(int id)
-    {
-        var goal = await _context.Goals.FindAsync(id);
-        if (goal == null) return NotFound();
+            _context.Entry(goal).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
 
-        _context.Goals.Remove(goal);
-        await _context.SaveChangesAsync();
-        return NoContent();
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteGoal(int id)
+        {
+            var goal = await _context.GOAL_TRACKER.FindAsync(id);
+            if (goal == null) return NotFound();
+
+            _context.GOAL_TRACKER.Remove(goal);
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
     }
 }
