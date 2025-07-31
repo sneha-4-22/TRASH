@@ -1,32 +1,23 @@
-[Authorize]
-[HttpGet("paged")]
-public IActionResult GetPagedGoals(int page = 1, int pageSize = 10)
+[HttpGet]
+public async Task<ActionResult<IEnumerable<Goal>>> GetGoals(int pageNumber = 1, int pageSize = 10)
 {
-    try
-    {
-        var userId = User.FindFirst("id")?.Value;
+    if (pageNumber < 1 || pageSize < 1)
+        return BadRequest("Invalid page number or size");
 
-        if (string.IsNullOrEmpty(userId))
-            return Unauthorized("User not logged in.");
+    var query = _context.GOAL_TRACKER
+                        .Where(g => g.UserId == CurrentUserId);
 
-        int skip = (page - 1) * pageSize;
+    var totalGoals = await query.CountAsync();
+    var totalPages = (int)Math.Ceiling(totalGoals / (double)pageSize);
 
-        using (var connection = new SqlConnection(_configuration.GetConnectionString("DefaultConnection")))
-        {
-            var goals = connection.Query<Goal>(
-                @"SELECT * FROM GOAL_TRACKER 
-                  WHERE UserId = @UserId 
-                  ORDER BY GoalId 
-                  OFFSET @Skip ROWS 
-                  FETCH NEXT @PageSize ROWS ONLY",
-                new { UserId = userId, Skip = skip, PageSize = pageSize }
-            ).ToList();
+    var goals = await query
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
 
-            return Ok(goals);
-        }
-    }
-    catch (Exception ex)
-    {
-        return StatusCode(500, $"Something went wrong: {ex.Message}");
-    }
+    // Optional: add pagination metadata in headers
+    Response.Headers.Add("X-Total-Count", totalGoals.ToString());
+    Response.Headers.Add("X-Total-Pages", totalPages.ToString());
+
+    return goals;
 }
