@@ -1,4 +1,27 @@
+const fetchGoals = async () => {
+  try {
+    const res = await api.get(`${API_BASE}?pageNumber=${page}&pageSize=${pageSize}`);
+    
+    const fetchedGoals = res.data.goals || [];
+    const totalCount = res.data.totalCount;
 
+    console.log('Fetched Goals:', fetchedGoals);
+    console.log('Total Count:', totalCount);
+    console.log('Current Page:', page);
+
+    setGoals(fetchedGoals);
+
+    if (typeof totalCount === 'number' && !isNaN(totalCount)) {
+      const totalPagesCalc = Math.ceil(totalCount / pageSize);
+      setTotalPages(totalPagesCalc);
+      console.log('Total Pages:', totalPagesCalc);
+    } else {
+      console.warn('Invalid totalCount value:', totalCount);
+    }
+  } catch (err) {
+    console.error('Failed to fetch goals:', err);
+  }
+};
             import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
