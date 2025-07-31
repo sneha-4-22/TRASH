@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+
+            import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,22 +18,32 @@ function GoalTracker() {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) { navigate('/login'); return; }
+    if (!token) {
+      navigate('/login');
+      return;
+    }
     fetchGoals();
   }, [page]);
 
   const fetchGoals = async () => {
-    const res = await api.get(`${API_BASE}?page=${page}&pageSize=${pageSize}`);
-    setGoals(res.data.goals);       // Make sure your backend returns `{ goals, totalCount }`
-    setTotalPages(Math.ceil(res.data.totalCount / pageSize));
+    try {
+      const res = await api.get(`${API_BASE}?pageNumber=${page}&pageSize=${pageSize}`);
+      setGoals(res.data);
+      
+      const totalCount = parseInt(res.headers['x-total-count']);
+      if (!isNaN(totalCount)) {
+        setTotalPages(Math.ceil(totalCount / pageSize));
+      }
+    } catch (err) {
+      console.error('Failed to fetch goals:', err);
+    }
   };
 
   const addGoal = async () => {
     if (!newGoal.trim()) return;
     await api.post(API_BASE, { goalText: newGoal, isCompleted: false });
     setNewGoal('');
-    setPage(1);  // Go back to first page to see newly added goal
-    fetchGoals();
+    setPage(1); // Reset to first page
   };
 
   const markComplete = async (goal) => {
@@ -130,14 +141,14 @@ function GoalTracker() {
           {/* Pagination Controls */}
           <div style={{ marginTop: '20px' }}>
             <button
-              onClick={() => setPage((p) => Math.max(p - 1, 1))}
+              onClick={() => setPage(p => Math.max(p - 1, 1))}
               disabled={page === 1}
             >
               ⬅ Previous
             </button>
             <span style={{ margin: '0 15px' }}>Page {page} of {totalPages}</span>
             <button
-              onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+              onClick={() => setPage(p => Math.min(p + 1, totalPages))}
               disabled={page === totalPages}
             >
               Next ➡
