@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
-import { SdfTable } from '@synerg/react-components';
 
 const API_BASE = '/api/goals';
 
@@ -45,7 +44,7 @@ function GoalTracker() {
     await api.post(API_BASE, { goalText: newGoal, isCompleted: false });
     console.log(newGoal);
     setNewGoal('');
-    setPage(1); // Reset to first page
+    setPage(1);
   };
 
   const markComplete = async (goal) => {
@@ -75,6 +74,8 @@ function GoalTracker() {
   };
 
   return (
+    <div className="container">
+
     <div style={{ padding: '20px' }}>
       <h1>🌟 Dreamify - Your Goal Tracker</h1>
       <sdf-button onClick={logout}>Logout</sdf-button>
@@ -161,25 +162,14 @@ function GoalTracker() {
         </>
       )}
     </div>
+    </div>
   );
-}
-
-export default GoalTracker;
-import React, { useState } from 'react';
+}import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import {
-  SdfAlert,
-  SdfBusyIndicator,
-  SdfButton,
-  SdfCheckbox,
-  SdfFocusPane,
-  SdfGrid,
-  SdfIcon,
-  SdfInput,
-  SdfSearch,
-  SdfSelectSimple,
-  SdfSpotIllustration,
+
+  SdfInput
   } from "@synerg/react-components";
 
 export default function Login() {
@@ -200,7 +190,8 @@ export default function Login() {
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="auth-wrapper">
+    <div className="auth-box" style={{ padding: 20 }}>
       <h2>Login</h2>
       <SdfInput placeholder="Email" value={email}
 
@@ -209,15 +200,15 @@ export default function Login() {
       <br/>
       <sdf-input type="password" placeholder="Password" value={password} onsdfChange={e=>setPassword(e.target.value)} />
       <br/>
-      <sdf-button style = {{padding:"20px"}} onClick={submit}>Login</sdf-button>
+      <sdf-button className="login" style = {{padding:"20px"}} onClick={submit}>Login</sdf-button>
       {err && <p style={{color:'red'}}>{err}</p>}
       <p>New here? <Link to="/signup">Create account</Link></p>
+    </div>
     </div>
   );
 }import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
-import { SdfButton } from '@synerg/react-components';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -236,48 +227,19 @@ export default function Signup() {
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="auth-wrapper" >
+    <div className="auth-box" style={{ padding: 20 }}>
       <h2>Sign up</h2>
       <sdf-input placeholder="Email" value={email} onsdfChange={e=>setEmail(e.target.value)} />
       <br/>
       <sdf-input type="password" placeholder="Password" value={password} onsdfChange={e=>setPassword(e.target.value)} />
       <br/>
-      <sdf-button style = {{padding:"20px"}} onClick={submit}>Create Account</sdf-button>
+      <sdf-button className="signup" style = {{alignSelf:"centre",width:"200px", padding:"20px"}} onClick={submit}>Create Account</sdf-button>
       {msg && <p>{msg}</p>}
       <p>Already have an account? <Link to="/login">Login</Link></p>
     </div>
-  );
-}import axios from 'axios';
-
-const api = axios.create({
-  baseURL: 'http://localhost:5064', 
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  else console.warn('no token in local storage');
-  return config;
-}
-,
-(error)=>Promise.reject(error));
-
-export default api;
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import GoalTracker from './components/GoalTracker';
-import Login from './components/Login';
-import Signup from './components/Signup';
-
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<GoalTracker />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-      </Routes>
-    </BrowserRouter>
+    </div>
   );
 }
-export default App;
+
+export default GoalTracker;
