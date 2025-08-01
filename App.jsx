@@ -1,4 +1,48 @@
+<div style={{ marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+  <sdf-button
+    onClick={() => setPage((p) => Math.max(p - 1, 1))}
+    disabled={page === 1}
+  >
+    ⬅ Previous
+  </sdf-button>
 
+  <span>Page {page} of {totalPages}</span>
+
+  <input
+    type="number"
+    min="1"
+    max={totalPages}
+    value={page}
+    onChange={(e) => {
+      const newPage = parseInt(e.target.value);
+      if (!isNaN(newPage)) setPage(newPage);
+    }}
+    style={{
+      width: '60px',
+      textAlign: 'center',
+      padding: '5px',
+      border: '1px solid #ccc',
+      borderRadius: '5px'
+    }}
+  />
+
+  <sdf-button
+    onClick={() => {
+      if (page < 1) setPage(1);
+      else if (page > totalPages) setPage(totalPages);
+      else fetchGoals(); // optional, to manually re-trigger
+    }}
+  >
+    Go
+  </sdf-button>
+
+  <sdf-button
+    onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+    disabled={page === totalPages}
+  >
+    Next ➡
+  </sdf-button>
+</div>
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
