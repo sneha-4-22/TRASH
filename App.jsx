@@ -164,7 +164,9 @@ function GoalTracker() {
     </div>
     </div>
   );
-}import React, { useState } from 'react';
+}
+export default GoalTracker;
+import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import {
@@ -206,7 +208,8 @@ export default function Login() {
     </div>
     </div>
   );
-}import React, { useState } from 'react';
+}
+import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -242,4 +245,38 @@ export default function Signup() {
   );
 }
 
-export default GoalTracker;
+
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: 'http://localhost:5064', 
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  else console.warn('no token in local storage');
+  return config;
+}
+,
+(error)=>Promise.reject(error));
+
+export default api;
+import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import GoalTracker from './components/GoalTracker';
+import Login from './components/Login';
+import Signup from './components/Signup';
+import './App.css';
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<GoalTracker />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+export default App;
