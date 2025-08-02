@@ -1,3 +1,31 @@
+Dynamic Report Builder
+I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
+Key Components
+1.	Database Structure
+o	ReportDefinitions table (core metadata)
+o	ReportParameters table (parameter configuration)
+2.	Backend Services
+o	ReportService (data retrieval and processing)
+o	ReportAdminService (management interface)
+3.	Multiple Data Sources
+o	Stored Procedures
+o	SQL Queries
+o	API Endpoints
+4.	Frontend Features
+o	Report dashboard with category filtering
+o	Parameter form generation
+o	Dynamic data display
+o	Export options (Excel, PDF, CSV)
+5.	Security
+o	Role-based visibility
+o	Parameter validation
+Implementation Benefits
+•	No-code report creation - Business users can create reports without developer involvement
+•	Flexible parameters - Support for text, number, date, and dropdown parameters
+•	Automatic UI generation - Forms and tables built dynamically based on metadata
+•	Export functionality - Built-in support for common export formats
+This system makes reporting truly configurable through database entries, allowing business users to create and share reports while maintaining security and performance.
+
 
 Custom report functionality tool using C# ideas based on i just make a entry in the database for the source of data and report should be visible on the ui 
 
