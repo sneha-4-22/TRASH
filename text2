@@ -1,28 +1,21 @@
-# Dynamic Report Builder - ASP.NET Core Backend Setup
+# Custom Report Backend Project Structure
 
-## 1. Project Setup
+## 1. Project Setup and Dependencies
 
-### Create New ASP.NET Core Web API Project
-```bash
-dotnet new webapi -n DynamicReportBuilder
-cd DynamicReportBuilder
+### NuGet Packages to Install:
+```xml
+<PackageReference Include="Dapper" Version="2.0.151" />
+<PackageReference Include="System.Data.SqlClient" Version="4.8.5" />
+<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+<PackageReference Include="Microsoft.AspNetCore.Cors" Version="2.2.0" />
+<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 ```
 
-### Install Required NuGet Packages
-```bash
-dotnet add package Dapper
-dotnet add package System.Data.SqlClient
-dotnet add package Swashbuckle.AspNetCore
-dotnet add package Microsoft.AspNetCore.Cors
-dotnet add package Newtonsoft.Json
-```
+## 2. Database Tables Script
 
-## 2. Database Setup
-
-### Create Tables in SSMS
 ```sql
--- Reports definition table
-CREATE TABLE ReportDefinitions (
+-- Create SnehaReportDefinitions table
+CREATE TABLE SnehaReportDefinitions (
     ReportId INT PRIMARY KEY IDENTITY(1,1),
     ReportName NVARCHAR(100) NOT NULL,
     Description NVARCHAR(500),
@@ -37,10 +30,10 @@ CREATE TABLE ReportDefinitions (
     ModifiedDate DATETIME DEFAULT GETDATE()
 );
 
--- Report parameters table
-CREATE TABLE ReportParameters (
+-- Create SnehaReportParameters table
+CREATE TABLE SnehaReportParameters (
     ParameterId INT PRIMARY KEY IDENTITY(1,1),
-    ReportId INT FOREIGN KEY REFERENCES ReportDefinitions(ReportId),
+    ReportId INT FOREIGN KEY REFERENCES SnehaReportDefinitions(ReportId),
     ParameterName NVARCHAR(50) NOT NULL,
     DisplayName NVARCHAR(100) NOT NULL,
     ParameterType NVARCHAR(50) NOT NULL, -- 'Text', 'Number', 'Date', 'Dropdown'
@@ -50,16 +43,751 @@ CREATE TABLE ReportParameters (
     DropdownOptions NVARCHAR(MAX) -- JSON array for dropdown options
 );
 
--- Sample data
-INSERT INTO ReportDefinitions (ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, Parameters)
+-- Insert Sample Data
+INSERT INTO SnehaReportDefinitions (ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
 VALUES 
-('Employee Report', 'List of all employees', 'HR', 'SQL', 'SELECT * FROM Employees WHERE DepartmentId = @DepartmentId', '["Admin", "HR"]', '[{"name": "DepartmentId", "type": "Number", "required": true}]'),
-('Sales Report', 'Monthly sales data', 'Sales', 'StoredProcedure', 'GetSalesData', '["Admin", "Sales"]', '[{"name": "Month", "type": "Number", "required": true}, {"name": "Year", "type": "Number", "required": true}]');
+('Employee Report', 'List of all employees', 'HR', 'SQL', 'SELECT * FROM Employees WHERE IsActive = 1', '["Admin", "HR"]', 1),
+('Sales Report', 'Monthly sales data', 'Sales', 'StoredProcedure', 'GetMonthlySalesReport', '["Admin", "Sales"]', 1);
 ```
 
-## 3. Configuration Setup
+## 3. Models
 
-### appsettings.json
+```csharp
+// Models/ReportDefinition.cs
+using Newtonsoft.Json;
+using System.ComponentModel.DataAnnotations;
+
+namespace Custom_report.Models
+{
+    public class ReportDefinition
+    {
+        public int ReportId { get; set; }
+        
+        [Required]
+        [StringLength(100)]
+        public string ReportName { get; set; }
+        
+        [StringLength(500)]
+        public string Description { get; set; }
+        
+        [StringLength(50)]
+        public string Category { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string DataSourceType { get; set; }
+        
+        [Required]
+        public string DataSourceValue { get; set; }
+        
+        public string Parameters { get; set; }
+        public string LayoutSettings { get; set; }
+        public string AccessRoles { get; set; }
+        public bool IsActive { get; set; } = true;
+        public DateTime CreatedDate { get; set; }
+        public DateTime ModifiedDate { get; set; }
+        
+        // Navigation Properties (not mapped to DB)
+        [JsonIgnore]
+        public List<ReportParameter> ReportParameters { get; set; } = new List<ReportParameter>();
+        
+        [JsonIgnore]
+        public List<string> AccessRolesList 
+        { 
+            get => string.IsNullOrEmpty(AccessRoles) ? new List<string>() : JsonConvert.DeserializeObject<List<string>>(AccessRoles);
+            set => AccessRoles = JsonConvert.SerializeObject(value);
+        }
+    }
+}
+
+// Models/ReportParameter.cs
+using System.ComponentModel.DataAnnotations;
+
+namespace Custom_report.Models
+{
+    public class ReportParameter
+    {
+        public int ParameterId { get; set; }
+        public int ReportId { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string ParameterName { get; set; }
+        
+        [Required]
+        [StringLength(100)]
+        public string DisplayName { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string ParameterType { get; set; }
+        
+        public string DefaultValue { get; set; }
+        public bool IsRequired { get; set; }
+        
+        [StringLength(500)]
+        public string ValidationRule { get; set; }
+        
+        public string DropdownOptions { get; set; }
+        
+        // Helper property for dropdown options
+        public List<DropdownOption> DropdownOptionsList 
+        { 
+            get => string.IsNullOrEmpty(DropdownOptions) ? new List<DropdownOption>() : JsonConvert.DeserializeObject<List<DropdownOption>>(DropdownOptions);
+            set => DropdownOptions = JsonConvert.SerializeObject(value);
+        }
+    }
+}
+
+// Models/DropdownOption.cs
+namespace Custom_report.Models
+{
+    public class DropdownOption
+    {
+        public string Value { get; set; }
+        public string Display { get; set; }
+    }
+}
+
+// Models/ReportData.cs
+using System.Data;
+
+namespace Custom_report.Models
+{
+    public class ReportData
+    {
+        public ReportDefinition Metadata { get; set; }
+        public DataTable Data { get; set; }
+        public string Error { get; set; }
+        public bool HasError => !string.IsNullOrEmpty(Error);
+    }
+}
+
+// Models/ApiResponse.cs
+namespace Custom_report.Models
+{
+    public class ApiResponse<T>
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public T Data { get; set; }
+        public List<string> Errors { get; set; } = new List<string>();
+        
+        public static ApiResponse<T> SuccessResult(T data, string message = "Success")
+        {
+            return new ApiResponse<T>
+            {
+                Success = true,
+                Message = message,
+                Data = data
+            };
+        }
+        
+        public static ApiResponse<T> ErrorResult(string message, List<string> errors = null)
+        {
+            return new ApiResponse<T>
+            {
+                Success = false,
+                Message = message,
+                Errors = errors ?? new List<string>()
+            };
+        }
+    }
+}
+```
+
+## 4. Database Service (Singleton Pattern)
+
+```csharp
+// Services/DatabaseService.cs
+using System.Data;
+using System.Data.SqlClient;
+
+namespace Custom_report.Services
+{
+    public interface IDatabaseService
+    {
+        IDbConnection GetConnection();
+    }
+    
+    public sealed class DatabaseService : IDatabaseService
+    {
+        private static DatabaseService _instance;
+        private static readonly object _lockObject = new object();
+        private readonly string _connectionString;
+        
+        private DatabaseService(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+        
+        public static DatabaseService GetInstance(string connectionString)
+        {
+            if (_instance == null)
+            {
+                lock (_lockObject)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new DatabaseService(connectionString);
+                    }
+                }
+            }
+            return _instance;
+        }
+        
+        public IDbConnection GetConnection()
+        {
+            return new SqlConnection(_connectionString);
+        }
+    }
+}
+```
+
+## 5. Report Service (Singleton Pattern)
+
+```csharp
+// Services/ReportService.cs
+using Custom_report.Models;
+using Dapper;
+using System.Data;
+using System.Data.SqlClient;
+using Newtonsoft.Json;
+
+namespace Custom_report.Services
+{
+    public interface IReportService
+    {
+        Task<List<ReportDefinition>> GetAvailableReportsAsync(IEnumerable<string> userRoles);
+        Task<ReportDefinition> GetReportDefinitionAsync(int reportId);
+        Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, string> parameters);
+        Task<int> CreateReportAsync(ReportDefinition report);
+        Task<bool> UpdateReportAsync(ReportDefinition report);
+        Task<bool> DeleteReportAsync(int reportId);
+    }
+    
+    public sealed class ReportService : IReportService
+    {
+        private static ReportService _instance;
+        private static readonly object _lockObject = new object();
+        private readonly IDatabaseService _databaseService;
+        private readonly ILogger<ReportService> _logger;
+        
+        private ReportService(IDatabaseService databaseService, ILogger<ReportService> logger)
+        {
+            _databaseService = databaseService;
+            _logger = logger;
+        }
+        
+        public static ReportService GetInstance(IDatabaseService databaseService, ILogger<ReportService> logger)
+        {
+            if (_instance == null)
+            {
+                lock (_lockObject)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new ReportService(databaseService, logger);
+                    }
+                }
+            }
+            return _instance;
+        }
+        
+        public async Task<List<ReportDefinition>> GetAvailableReportsAsync(IEnumerable<string> userRoles)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                var sql = @"
+                    SELECT ReportId, ReportName, Description, Category, DataSourceType, 
+                           DataSourceValue, Parameters, LayoutSettings, AccessRoles, 
+                           IsActive, CreatedDate, ModifiedDate 
+                    FROM SnehaReportDefinitions 
+                    WHERE IsActive = 1";
+                
+                var reports = (await connection.QueryAsync<ReportDefinition>(sql)).ToList();
+                
+                // Filter by user roles
+                var filteredReports = reports.Where(r =>
+                {
+                    if (string.IsNullOrEmpty(r.AccessRoles)) return true;
+                    
+                    var accessRoles = JsonConvert.DeserializeObject<List<string>>(r.AccessRoles);
+                    return !accessRoles.Any() || accessRoles.Any(role => userRoles.Contains(role));
+                }).ToList();
+                
+                return filteredReports;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving available reports");
+                throw;
+            }
+        }
+        
+        public async Task<ReportDefinition> GetReportDefinitionAsync(int reportId)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var reportSql = @"
+                    SELECT ReportId, ReportName, Description, Category, DataSourceType, 
+                           DataSourceValue, Parameters, LayoutSettings, AccessRoles, 
+                           IsActive, CreatedDate, ModifiedDate 
+                    FROM SnehaReportDefinitions 
+                    WHERE ReportId = @ReportId";
+                
+                var report = await connection.QueryFirstOrDefaultAsync<ReportDefinition>(reportSql, new { ReportId = reportId });
+                
+                if (report == null) return null;
+                
+                // Load parameters
+                var parametersSql = @"
+                    SELECT ParameterId, ReportId, ParameterName, DisplayName, ParameterType, 
+                           DefaultValue, IsRequired, ValidationRule, DropdownOptions 
+                    FROM SnehaReportParameters 
+                    WHERE ReportId = @ReportId";
+                
+                var parameters = (await connection.QueryAsync<ReportParameter>(parametersSql, new { ReportId = reportId })).ToList();
+                report.ReportParameters = parameters;
+                
+                return report;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving report definition for ReportId: {ReportId}", reportId);
+                throw;
+            }
+        }
+        
+        public async Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, string> parameters)
+        {
+            var result = new ReportData();
+            
+            try
+            {
+                var reportDef = await GetReportDefinitionAsync(reportId);
+                if (reportDef == null)
+                {
+                    result.Error = "Report not found";
+                    return result;
+                }
+                
+                result.Metadata = reportDef;
+                
+                using var connection = _databaseService.GetConnection();
+                
+                switch (reportDef.DataSourceType.ToLower())
+                {
+                    case "storedprocedure":
+                        result.Data = await ExecuteStoredProcedureAsync(connection, reportDef.DataSourceValue, parameters);
+                        break;
+                        
+                    case "sql":
+                        result.Data = await ExecuteSqlQueryAsync(connection, reportDef.DataSourceValue, parameters);
+                        break;
+                        
+                    default:
+                        result.Error = "Unsupported data source type";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating report for ReportId: {ReportId}", reportId);
+                result.Error = "An error occurred while generating the report";
+            }
+            
+            return result;
+        }
+        
+        private async Task<DataTable> ExecuteStoredProcedureAsync(IDbConnection connection, string procName, Dictionary<string, string> parameters)
+        {
+            var dataTable = new DataTable();
+            
+            using var command = connection.CreateCommand();
+            command.CommandText = procName;
+            command.CommandType = CommandType.StoredProcedure;
+            
+            foreach (var param in parameters)
+            {
+                var dbParam = command.CreateParameter();
+                dbParam.ParameterName = $"@{param.Key}";
+                dbParam.Value = param.Value ?? DBNull.Value;
+                command.Parameters.Add(dbParam);
+            }
+            
+            connection.Open();
+            using var reader = await command.ExecuteReaderAsync();
+            dataTable.Load(reader);
+            
+            return dataTable;
+        }
+        
+        private async Task<DataTable> ExecuteSqlQueryAsync(IDbConnection connection, string sql, Dictionary<string, string> parameters)
+        {
+            var dataTable = new DataTable();
+            
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.CommandType = CommandType.Text;
+            
+            foreach (var param in parameters)
+            {
+                var dbParam = command.CreateParameter();
+                dbParam.ParameterName = $"@{param.Key}";
+                dbParam.Value = param.Value ?? DBNull.Value;
+                command.Parameters.Add(dbParam);
+            }
+            
+            connection.Open();
+            using var reader = await command.ExecuteReaderAsync();
+            dataTable.Load(reader);
+            
+            return dataTable;
+        }
+        
+        public async Task<int> CreateReportAsync(ReportDefinition report)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var sql = @"
+                    INSERT INTO SnehaReportDefinitions 
+                    (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+                     Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+                    OUTPUT INSERTED.ReportId
+                    VALUES 
+                    (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+                     @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
+                
+                var reportId = await connection.QuerySingleAsync<int>(sql, report);
+                
+                // Insert parameters if any
+                if (report.ReportParameters?.Any() == true)
+                {
+                    var parameterSql = @"
+                        INSERT INTO SnehaReportParameters 
+                        (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                         IsRequired, ValidationRule, DropdownOptions)
+                        VALUES 
+                        (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                         @IsRequired, @ValidationRule, @DropdownOptions)";
+                    
+                    foreach (var param in report.ReportParameters)
+                    {
+                        param.ReportId = reportId;
+                        await connection.ExecuteAsync(parameterSql, param);
+                    }
+                }
+                
+                return reportId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+                throw;
+            }
+        }
+        
+        public async Task<bool> UpdateReportAsync(ReportDefinition report)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var sql = @"
+                    UPDATE SnehaReportDefinitions 
+                    SET ReportName = @ReportName, Description = @Description, Category = @Category,
+                        DataSourceType = @DataSourceType, DataSourceValue = @DataSourceValue,
+                        Parameters = @Parameters, LayoutSettings = @LayoutSettings, 
+                        AccessRoles = @AccessRoles, IsActive = @IsActive, ModifiedDate = GETDATE()
+                    WHERE ReportId = @ReportId";
+                
+                var rowsAffected = await connection.ExecuteAsync(sql, report);
+                return rowsAffected > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating report: {ReportId}", report.ReportId);
+                throw;
+            }
+        }
+        
+        public async Task<bool> DeleteReportAsync(int reportId)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                // Soft delete
+                var sql = @"
+                    UPDATE SnehaReportDefinitions 
+                    SET IsActive = 0, ModifiedDate = GETDATE()
+                    WHERE ReportId = @ReportId";
+                
+                var rowsAffected = await connection.ExecuteAsync(sql, new { ReportId = reportId });
+                return rowsAffected > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting report: {ReportId}", reportId);
+                throw;
+            }
+        }
+    }
+}
+```
+
+## 6. Controllers
+
+```csharp
+// Controllers/ReportsController.cs
+using Custom_report.Models;
+using Custom_report.Services;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+
+namespace Custom_report.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class ReportsController : ControllerBase
+    {
+        private readonly IReportService _reportService;
+        private readonly ILogger<ReportsController> _logger;
+        
+        public ReportsController(IReportService reportService, ILogger<ReportsController> logger)
+        {
+            _reportService = reportService;
+            _logger = logger;
+        }
+        
+        /// <summary>
+        /// Get all available reports for the current user
+        /// </summary>
+        [HttpGet]
+        public async Task<ActionResult<ApiResponse<List<ReportDefinition>>>> GetAvailableReports()
+        {
+            try
+            {
+                // For now, we'll use default roles. In real app, get from JWT token or session
+                var userRoles = new[] { "Admin", "HR", "Sales" };
+                
+                var reports = await _reportService.GetAvailableReportsAsync(userRoles);
+                return Ok(ApiResponse<List<ReportDefinition>>.SuccessResult(reports));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving available reports");
+                return StatusCode(500, ApiResponse<List<ReportDefinition>>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Get report definition by ID
+        /// </summary>
+        [HttpGet("{id}")]
+        public async Task<ActionResult<ApiResponse<ReportDefinition>>> GetReportDefinition(int id)
+        {
+            try
+            {
+                var report = await _reportService.GetReportDefinitionAsync(id);
+                if (report == null)
+                    return NotFound(ApiResponse<ReportDefinition>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<ReportDefinition>.SuccessResult(report));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving report definition for ID: {ReportId}", id);
+                return StatusCode(500, ApiResponse<ReportDefinition>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Generate report data
+        /// </summary>
+        [HttpPost("{id}/generate")]
+        public async Task<ActionResult<ApiResponse<object>>> GenerateReport(int id, [FromBody] Dictionary<string, string> parameters)
+        {
+            try
+            {
+                var reportData = await _reportService.GenerateReportAsync(id, parameters ?? new Dictionary<string, string>());
+                
+                if (reportData.HasError)
+                    return BadRequest(ApiResponse<object>.ErrorResult(reportData.Error));
+                
+                // Convert DataTable to a more JSON-friendly format
+                var result = new
+                {
+                    Metadata = reportData.Metadata,
+                    Columns = reportData.Data.Columns.Cast<System.Data.DataColumn>().Select(c => new { Name = c.ColumnName, Type = c.DataType.Name }),
+                    Rows = reportData.Data.AsEnumerable().Select(row => reportData.Data.Columns.Cast<System.Data.DataColumn>().ToDictionary(col => col.ColumnName, col => row[col]))
+                };
+                
+                return Ok(ApiResponse<object>.SuccessResult(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating report for ID: {ReportId}", id);
+                return StatusCode(500, ApiResponse<object>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Create a new report
+        /// </summary>
+        [HttpPost]
+        public async Task<ActionResult<ApiResponse<int>>> CreateReport([FromBody] ReportDefinition report)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                    return BadRequest(ApiResponse<int>.ErrorResult("Invalid model", ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()));
+                
+                var reportId = await _reportService.CreateReportAsync(report);
+                return CreatedAtAction(nameof(GetReportDefinition), new { id = reportId }, ApiResponse<int>.SuccessResult(reportId, "Report created successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+                return StatusCode(500, ApiResponse<int>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Update an existing report
+        /// </summary>
+        [HttpPut("{id}")]
+        public async Task<ActionResult<ApiResponse<bool>>> UpdateReport(int id, [FromBody] ReportDefinition report)
+        {
+            try
+            {
+                if (id != report.ReportId)
+                    return BadRequest(ApiResponse<bool>.ErrorResult("Report ID mismatch"));
+                
+                if (!ModelState.IsValid)
+                    return BadRequest(ApiResponse<bool>.ErrorResult("Invalid model", ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()));
+                
+                var success = await _reportService.UpdateReportAsync(report);
+                if (!success)
+                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<bool>.SuccessResult(true, "Report updated successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating report: {ReportId}", id);
+                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Delete a report (soft delete)
+        /// </summary>
+        [HttpDelete("{id}")]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteReport(int id)
+        {
+            try
+            {
+                var success = await _reportService.DeleteReportAsync(id);
+                if (!success)
+                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<bool>.SuccessResult(true, "Report deleted successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting report: {ReportId}", id);
+                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
+            }
+        }
+    }
+}
+```
+
+## 7. Program.cs Configuration
+
+```csharp
+// Program.cs
+using Custom_report.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo 
+    { 
+        Title = "Custom Report API", 
+        Version = "v1",
+        Description = "Dynamic Report Generation System"
+    });
+    
+    // Include XML comments if you have them
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+});
+
+// CORS configuration for React frontend
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactApp", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
+// Register services using Singleton pattern
+builder.Services.AddSingleton<IDatabaseService>(provider =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    return DatabaseService.GetInstance(connectionString);
+});
+
+builder.Services.AddSingleton<IReportService>(provider =>
+{
+    var databaseService = provider.GetRequiredService<IDatabaseService>();
+    var logger = provider.GetRequiredService<ILogger<ReportService>>();
+    return ReportService.GetInstance(databaseService, logger);
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Custom Report API V1");
+        c.RoutePrefix = string.Empty; // Makes Swagger available at root
+    });
+}
+
+app.UseHttpsRedirection();
+app.UseCors("AllowReactApp");
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+```
+
+## 8. appsettings.json
+
 ```json
 {
   "ConnectionStrings": {
@@ -75,763 +803,62 @@ VALUES
 }
 ```
 
-## 4. Models
-
-### Create Models/ReportModels.cs
-```csharp
-using Newtonsoft.Json;
-using System.ComponentModel.DataAnnotations;
-
-namespace DynamicReportBuilder.Models
-{
-    public class ReportDefinition
-    {
-        public int ReportId { get; set; }
-        [Required]
-        public string ReportName { get; set; }
-        public string Description { get; set; }
-        public string Category { get; set; }
-        [Required]
-        public string DataSourceType { get; set; }
-        [Required]
-        public string DataSourceValue { get; set; }
-        public string Parameters { get; set; }
-        public string LayoutSettings { get; set; }
-        public string AccessRoles { get; set; }
-        public bool IsActive { get; set; } = true;
-        public DateTime CreatedDate { get; set; } = DateTime.Now;
-        public DateTime ModifiedDate { get; set; } = DateTime.Now;
-
-        // Navigation properties (not mapped to DB)
-        [JsonIgnore]
-        public List<ReportParameter>? ReportParameters { get; set; }
-        
-        public List<string> GetAccessRoles()
-        {
-            return string.IsNullOrEmpty(AccessRoles) ? 
-                new List<string>() : 
-                JsonConvert.DeserializeObject<List<string>>(AccessRoles) ?? new List<string>();
-        }
-        
-        public List<ParameterDefinition> GetParameterDefinitions()
-        {
-            return string.IsNullOrEmpty(Parameters) ? 
-                new List<ParameterDefinition>() : 
-                JsonConvert.DeserializeObject<List<ParameterDefinition>>(Parameters) ?? new List<ParameterDefinition>();
-        }
-    }
-
-    public class ReportParameter
-    {
-        public int ParameterId { get; set; }
-        public int ReportId { get; set; }
-        [Required]
-        public string ParameterName { get; set; }
-        [Required]
-        public string DisplayName { get; set; }
-        [Required]
-        public string ParameterType { get; set; }
-        public string DefaultValue { get; set; }
-        public bool IsRequired { get; set; }
-        public string ValidationRule { get; set; }
-        public string DropdownOptions { get; set; }
-        
-        public List<DropdownOption> GetDropdownOptions()
-        {
-            return string.IsNullOrEmpty(DropdownOptions) ? 
-                new List<DropdownOption>() : 
-                JsonConvert.DeserializeObject<List<DropdownOption>>(DropdownOptions) ?? new List<DropdownOption>();
-        }
-    }
-
-    public class ParameterDefinition
-    {
-        public string Name { get; set; }
-        public string Type { get; set; }
-        public bool Required { get; set; }
-        public string DefaultValue { get; set; }
-    }
-
-    public class DropdownOption
-    {
-        public string Value { get; set; }
-        public string Display { get; set; }
-    }
-
-    public class ReportData
-    {
-        public ReportDefinition Metadata { get; set; }
-        public List<Dictionary<string, object>> Data { get; set; }
-        public List<string> Columns { get; set; }
-        public string Error { get; set; }
-    }
-
-    public class ReportExecutionRequest
-    {
-        public int ReportId { get; set; }
-        public Dictionary<string, string> Parameters { get; set; } = new Dictionary<string, string>();
-    }
-
-    public class ApiResponse<T>
-    {
-        public bool Success { get; set; }
-        public T Data { get; set; }
-        public string Message { get; set; }
-        public List<string> Errors { get; set; } = new List<string>();
-
-        public static ApiResponse<T> SuccessResult(T data, string message = null)
-        {
-            return new ApiResponse<T>
-            {
-                Success = true,
-                Data = data,
-                Message = message
-            };
-        }
-
-        public static ApiResponse<T> ErrorResult(string error)
-        {
-            return new ApiResponse<T>
-            {
-                Success = false,
-                Message = error,
-                Errors = new List<string> { error }
-            };
-        }
-    }
-}
+## 9. Project Structure
 ```
-
-## 5. Data Access Layer
-
-### Create Services/IReportService.cs
-```csharp
-using DynamicReportBuilder.Models;
-
-namespace DynamicReportBuilder.Services
-{
-    public interface IReportService
-    {
-        Task<List<ReportDefinition>> GetAvailableReportsAsync(List<string> userRoles = null);
-        Task<ReportDefinition> GetReportDefinitionAsync(int reportId);
-        Task<List<ReportParameter>> GetReportParametersAsync(int reportId);
-        Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, string> parameters);
-        Task<int> CreateReportAsync(ReportDefinition report);
-        Task<bool> UpdateReportAsync(ReportDefinition report);
-        Task<bool> DeleteReportAsync(int reportId);
-    }
-}
-```
-
-### Create Services/ReportService.cs
-```csharp
-using Dapper;
-using DynamicReportBuilder.Models;
-using DynamicReportBuilder.Services;
-using Newtonsoft.Json;
-using System.Data;
-using System.Data.SqlClient;
-
-namespace DynamicReportBuilder.Services
-{
-    public class ReportService : IReportService
-    {
-        private readonly string _connectionString;
-        private readonly ILogger<ReportService> _logger;
-
-        public ReportService(IConfiguration configuration, ILogger<ReportService> logger)
-        {
-            _connectionString = configuration.GetConnectionString("DefaultConnection");
-            _logger = logger;
-        }
-
-        public async Task<List<ReportDefinition>> GetAvailableReportsAsync(List<string> userRoles = null)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                var reports = await connection.QueryAsync<ReportDefinition>(
-                    "SELECT * FROM ReportDefinitions WHERE IsActive = 1 ORDER BY Category, ReportName");
-
-                var result = reports.ToList();
-
-                // Filter by user roles if provided
-                if (userRoles != null && userRoles.Any())
-                {
-                    result = result.Where(r =>
-                    {
-                        var accessRoles = r.GetAccessRoles();
-                        return !accessRoles.Any() || accessRoles.Any(role => userRoles.Contains(role));
-                    }).ToList();
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving available reports");
-                throw;
-            }
-        }
-
-        public async Task<ReportDefinition> GetReportDefinitionAsync(int reportId)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                var report = await connection.QueryFirstOrDefaultAsync<ReportDefinition>(
-                    "SELECT * FROM ReportDefinitions WHERE ReportId = @ReportId",
-                    new { ReportId = reportId });
-
-                if (report != null)
-                {
-                    // Load parameters
-                    report.ReportParameters = await GetReportParametersAsync(reportId);
-                }
-
-                return report;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving report definition for ReportId: {ReportId}", reportId);
-                throw;
-            }
-        }
-
-        public async Task<List<ReportParameter>> GetReportParametersAsync(int reportId)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                var parameters = await connection.QueryAsync<ReportParameter>(
-                    "SELECT * FROM ReportParameters WHERE ReportId = @ReportId ORDER BY ParameterId",
-                    new { ReportId = reportId });
-
-                return parameters.ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving report parameters for ReportId: {ReportId}", reportId);
-                throw;
-            }
-        }
-
-        public async Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, string> parameters)
-        {
-            var result = new ReportData();
-
-            try
-            {
-                var reportDef = await GetReportDefinitionAsync(reportId);
-                if (reportDef == null)
-                {
-                    result.Error = "Report not found";
-                    return result;
-                }
-
-                result.Metadata = reportDef;
-
-                using var connection = new SqlConnection(_connectionString);
-
-                // Execute based on data source type
-                switch (reportDef.DataSourceType.ToLower())
-                {
-                    case "storedprocedure":
-                        result = await ExecuteStoredProcedureAsync(connection, reportDef, parameters);
-                        break;
-
-                    case "sql":
-                        result = await ExecuteSqlQueryAsync(connection, reportDef, parameters);
-                        break;
-
-                    default:
-                        result.Error = "Unsupported data source type";
-                        break;
-                }
-
-                result.Metadata = reportDef;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating report for ReportId: {ReportId}", reportId);
-                result.Error = "An error occurred while generating the report";
-            }
-
-            return result;
-        }
-
-        private async Task<ReportData> ExecuteStoredProcedureAsync(
-            SqlConnection connection, 
-            ReportDefinition reportDef, 
-            Dictionary<string, string> parameters)
-        {
-            var result = new ReportData();
-
-            try
-            {
-                var dynamicParams = new DynamicParameters();
-                foreach (var param in parameters)
-                {
-                    dynamicParams.Add(param.Key, param.Value);
-                }
-
-                var queryResult = await connection.QueryAsync(
-                    reportDef.DataSourceValue,
-                    dynamicParams,
-                    commandType: CommandType.StoredProcedure);
-
-                result.Data = queryResult.Select(row => (IDictionary<string, object>)row)
-                                      .Select(dict => dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
-                                      .ToList();
-
-                if (result.Data.Any())
-                {
-                    result.Columns = result.Data.First().Keys.ToList();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error executing stored procedure: {ProcName}", reportDef.DataSourceValue);
-                result.Error = $"Error executing stored procedure: {ex.Message}";
-            }
-
-            return result;
-        }
-
-        private async Task<ReportData> ExecuteSqlQueryAsync(
-            SqlConnection connection, 
-            ReportDefinition reportDef, 
-            Dictionary<string, string> parameters)
-        {
-            var result = new ReportData();
-
-            try
-            {
-                var dynamicParams = new DynamicParameters();
-                foreach (var param in parameters)
-                {
-                    dynamicParams.Add($"@{param.Key}", param.Value);
-                }
-
-                var queryResult = await connection.QueryAsync(
-                    reportDef.DataSourceValue,
-                    dynamicParams,
-                    commandType: CommandType.Text);
-
-                result.Data = queryResult.Select(row => (IDictionary<string, object>)row)
-                                      .Select(dict => dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
-                                      .ToList();
-
-                if (result.Data.Any())
-                {
-                    result.Columns = result.Data.First().Keys.ToList();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error executing SQL query: {Query}", reportDef.DataSourceValue);
-                result.Error = $"Error executing SQL query: {ex.Message}";
-            }
-
-            return result;
-        }
-
-        public async Task<int> CreateReportAsync(ReportDefinition report)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                
-                var sql = @"
-                    INSERT INTO ReportDefinitions 
-                    (ReportName, Description, Category, DataSourceType, DataSourceValue, Parameters, LayoutSettings, AccessRoles, IsActive)
-                    VALUES 
-                    (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, @Parameters, @LayoutSettings, @AccessRoles, @IsActive);
-                    SELECT CAST(SCOPE_IDENTITY() as int);";
-
-                var reportId = await connection.QuerySingleAsync<int>(sql, report);
-                return reportId;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
-                throw;
-            }
-        }
-
-        public async Task<bool> UpdateReportAsync(ReportDefinition report)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                
-                var sql = @"
-                    UPDATE ReportDefinitions 
-                    SET ReportName = @ReportName, 
-                        Description = @Description, 
-                        Category = @Category, 
-                        DataSourceType = @DataSourceType, 
-                        DataSourceValue = @DataSourceValue, 
-                        Parameters = @Parameters, 
-                        LayoutSettings = @LayoutSettings, 
-                        AccessRoles = @AccessRoles, 
-                        IsActive = @IsActive,
-                        ModifiedDate = GETDATE()
-                    WHERE ReportId = @ReportId";
-
-                var affectedRows = await connection.ExecuteAsync(sql, report);
-                return affectedRows > 0;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating report: {ReportId}", report.ReportId);
-                throw;
-            }
-        }
-
-        public async Task<bool> DeleteReportAsync(int reportId)
-        {
-            try
-            {
-                using var connection = new SqlConnection(_connectionString);
-                
-                // Soft delete - set IsActive to false
-                var sql = "UPDATE ReportDefinitions SET IsActive = 0, ModifiedDate = GETDATE() WHERE ReportId = @ReportId";
-                
-                var affectedRows = await connection.ExecuteAsync(sql, new { ReportId = reportId });
-                return affectedRows > 0;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting report: {ReportId}", reportId);
-                throw;
-            }
-        }
-    }
-}
-```
-
-## 6. Controllers
-
-### Create Controllers/ReportsController.cs
-```csharp
-using DynamicReportBuilder.Models;
-using DynamicReportBuilder.Services;
-using Microsoft.AspNetCore.Mvc;
-
-namespace DynamicReportBuilder.Controllers
-{
-    [ApiController]
-    [Route("api/[controller]")]
-    public class ReportsController : ControllerBase
-    {
-        private readonly IReportService _reportService;
-        private readonly ILogger<ReportsController> _logger;
-
-        public ReportsController(IReportService reportService, ILogger<ReportsController> logger)
-        {
-            _reportService = reportService;
-            _logger = logger;
-        }
-
-        /// <summary>
-        /// Get all available reports
-        /// </summary>
-        /// <param name="roles">Optional comma-separated list of user roles for filtering</param>
-        /// <returns>List of available reports</returns>
-        [HttpGet]
-        public async Task<ActionResult<ApiResponse<List<ReportDefinition>>>> GetAvailableReports([FromQuery] string roles = null)
-        {
-            try
-            {
-                var userRoles = string.IsNullOrEmpty(roles) ? 
-                    null : roles.Split(',').Select(r => r.Trim()).ToList();
-
-                var reports = await _reportService.GetAvailableReportsAsync(userRoles);
-                
-                return Ok(ApiResponse<List<ReportDefinition>>.SuccessResult(reports, "Reports retrieved successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting available reports");
-                return StatusCode(500, ApiResponse<List<ReportDefinition>>.ErrorResult("Internal server error"));
-            }
-        }
-
-        /// <summary>
-        /// Get report definition by ID
-        /// </summary>
-        /// <param name="id">Report ID</param>
-        /// <returns>Report definition with parameters</returns>
-        [HttpGet("{id}")]
-        public async Task<ActionResult<ApiResponse<ReportDefinition>>> GetReportDefinition(int id)
-        {
-            try
-            {
-                var report = await _reportService.GetReportDefinitionAsync(id);
-                
-                if (report == null)
-                    return NotFound(ApiResponse<ReportDefinition>.ErrorResult("Report not found"));
-
-                return Ok(ApiResponse<ReportDefinition>.SuccessResult(report, "Report definition retrieved successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting report definition for ID: {ReportId}", id);
-                return StatusCode(500, ApiResponse<ReportDefinition>.ErrorResult("Internal server error"));
-            }
-        }
-
-        /// <summary>
-        /// Generate report data
-        /// </summary>
-        /// <param name="request">Report execution request with parameters</param>
-        /// <returns>Generated report data</returns>
-        [HttpPost("generate")]
-        public async Task<ActionResult<ApiResponse<ReportData>>> GenerateReport([FromBody] ReportExecutionRequest request)
-        {
-            try
-            {
-                if (request == null || request.ReportId <= 0)
-                    return BadRequest(ApiResponse<ReportData>.ErrorResult("Invalid request"));
-
-                var reportData = await _reportService.GenerateReportAsync(request.ReportId, request.Parameters);
-                
-                if (!string.IsNullOrEmpty(reportData.Error))
-                    return BadRequest(ApiResponse<ReportData>.ErrorResult(reportData.Error));
-
-                return Ok(ApiResponse<ReportData>.SuccessResult(reportData, "Report generated successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating report");
-                return StatusCode(500, ApiResponse<ReportData>.ErrorResult("Internal server error"));
-            }
-        }
-
-        /// <summary>
-        /// Create new report definition
-        /// </summary>
-        /// <param name="report">Report definition</param>
-        /// <returns>Created report ID</returns>
-        [HttpPost]
-        public async Task<ActionResult<ApiResponse<int>>> CreateReport([FromBody] ReportDefinition report)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                    return BadRequest(ApiResponse<int>.ErrorResult("Invalid model state"));
-
-                var reportId = await _reportService.CreateReportAsync(report);
-                
-                return CreatedAtAction(
-                    nameof(GetReportDefinition), 
-                    new { id = reportId }, 
-                    ApiResponse<int>.SuccessResult(reportId, "Report created successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating report");
-                return StatusCode(500, ApiResponse<int>.ErrorResult("Internal server error"));
-            }
-        }
-
-        /// <summary>
-        /// Update existing report definition
-        /// </summary>
-        /// <param name="id">Report ID</param>
-        /// <param name="report">Updated report definition</param>
-        /// <returns>Success status</returns>
-        [HttpPut("{id}")]
-        public async Task<ActionResult<ApiResponse<bool>>> UpdateReport(int id, [FromBody] ReportDefinition report)
-        {
-            try
-            {
-                if (id != report.ReportId)
-                    return BadRequest(ApiResponse<bool>.ErrorResult("ID mismatch"));
-
-                if (!ModelState.IsValid)
-                    return BadRequest(ApiResponse<bool>.ErrorResult("Invalid model state"));
-
-                var success = await _reportService.UpdateReportAsync(report);
-                
-                if (!success)
-                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
-
-                return Ok(ApiResponse<bool>.SuccessResult(true, "Report updated successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating report");
-                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
-            }
-        }
-
-        /// <summary>
-        /// Delete report (soft delete)
-        /// </summary>
-        /// <param name="id">Report ID</param>
-        /// <returns>Success status</returns>
-        [HttpDelete("{id}")]
-        public async Task<ActionResult<ApiResponse<bool>>> DeleteReport(int id)
-        {
-            try
-            {
-                var success = await _reportService.DeleteReportAsync(id);
-                
-                if (!success)
-                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
-
-                return Ok(ApiResponse<bool>.SuccessResult(true, "Report deleted successfully"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting report");
-                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
-            }
-        }
-    }
-}
-```
-
-## 7. Program.cs Configuration
-
-### Update Program.cs
-```csharp
-using DynamicReportBuilder.Services;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-builder.Services.AddControllers()
-    .AddNewtonsoftJson(); // For JSON serialization
-
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { 
-        Title = "Dynamic Report Builder API", 
-        Version = "v1",
-        Description = "API for dynamic report generation system"
-    });
-    
-    // Include XML comments
-    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath))
-    {
-        c.IncludeXmlComments(xmlPath);
-    }
-});
-
-// Register services
-builder.Services.AddScoped<IReportService, ReportService>();
-
-// Add CORS
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowReactApp", policy =>
-    {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:3001") // React dev server
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
-});
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Dynamic Report Builder API V1");
-    });
-}
-
-app.UseHttpsRedirection();
-
-app.UseCors("AllowReactApp");
-
-app.UseAuthorization();
-
-app.MapControllers();
-
-app.Run();
-```
-
-## 8. Testing Your API
-
-### Run the application:
-```bash
-dotnet run
-```
-
-### Test with Swagger:
-Navigate to: `https://localhost:7xxx/swagger/index.html`
-
-### Sample API Calls:
-
-1. **Get All Reports:**
-   ```
-   GET /api/reports
-   ```
-
-2. **Get Report Definition:**
-   ```
-   GET /api/reports/1
-   ```
-
-3. **Generate Report:**
-   ```
-   POST /api/reports/generate
-   Body: {
-     "reportId": 1,
-     "parameters": {
-       "DepartmentId": "1"
-     }
-   }
-   ```
-
-4. **Create New Report:**
-   ```
-   POST /api/reports
-   Body: {
-     "reportName": "Test Report",
-     "description": "Test Description",
-     "category": "Test",
-     "dataSourceType": "SQL",
-     "dataSourceValue": "SELECT * FROM TestTable WHERE Id = @Id",
-     "accessRoles": "[\"Admin\"]",
-     "parameters": "[{\"name\": \"Id\", \"type\": \"Number\", \"required\": true}]"
-   }
-   ```
-
-## 9. Next Steps
-
-1. **Add Authentication/Authorization** (JWT tokens)
-2. **Add Export functionality** (Excel, PDF, CSV)
-3. **Add parameter validation**
-4. **Add caching for better performance**
-5. **Add logging and monitoring**
-6. **Create React frontend**
-
-## 10. Project Structure
-```
-DynamicReportBuilder/
+Custom_report/
 ├── Controllers/
 │   └── ReportsController.cs
 ├── Models/
-│   └── ReportModels.cs
+│   ├── ReportDefinition.cs
+│   ├── ReportParameter.cs
+│   ├── DropdownOption.cs
+│   ├── ReportData.cs
+│   └── ApiResponse.cs
 ├── Services/
-│   ├── IReportService.cs
+│   ├── DatabaseService.cs
 │   └── ReportService.cs
 ├── appsettings.json
 ├── Program.cs
-└── DynamicReportBuilder.csproj
+└── Custom_report.csproj
 ```
 
-Your backend is now ready! The API provides all the necessary endpoints for your React frontend to consume.
+## 10. How to Get Started
+
+1. **Create new ASP.NET Core Web API project:**
+   ```bash
+   dotnet new webapi -n Custom_report
+   cd Custom_report
+   ```
+
+2. **Install NuGet packages:**
+   ```bash
+   dotnet add package Dapper
+   dotnet add package System.Data.SqlClient
+   dotnet add package Swashbuckle.AspNetCore
+   dotnet add package Microsoft.AspNetCore.Cors
+   dotnet add package Newtonsoft.Json
+   ```
+
+3. **Create the database tables using the SQL script provided**
+
+4. **Copy all the code files into your project structure**
+
+5. **Update your connection string in appsettings.json**
+
+6. **Run the project:**
+   ```bash
+   dotnet run
+   ```
+
+7. **Access Swagger UI at:** `https://localhost:7xxx` (port will be shown in console)
+
+## 11. API Endpoints
+
+- `GET /api/reports` - Get all available reports
+- `GET /api/reports/{id}` - Get specific report definition
+- `POST /api/reports/{id}/generate` - Generate report data
+- `POST /api/reports` - Create new report
+- `PUT /api/reports/{id}` - Update existing report
+- `DELETE /api/reports/{id}` - Delete report (soft delete)
+
+This backend follows the Singleton design pattern, uses Dapper for database operations, and provides a complete RESTful API for your React frontend to consume!
