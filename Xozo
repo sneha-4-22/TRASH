@@ -1,93 +1,267 @@
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: #f4f6f8;
-  margin: 0;
-  padding: 0;
-}
+# Custom Report Dashboard - Usage Guide & Sample Data
 
-.container {
-  max-width: 900px;
-  margin: 40px auto;
-  padding: 30px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
+## 📊 Understanding Your Database Tables
 
-h1, h2 {
-  text-align: center;
-  color: #333;
-}
+### 1. SnehaReportDefinitions Table (Main Reports)
+This table stores the report metadata:
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 20px;
-}
+| Field | Purpose | Example |
+|-------|---------|---------|
+| **ReportName** | Display name of the report | "Employee List Report" |
+| **Description** | What the report shows | "Shows all active employees with their details" |
+| **Category** | Groups reports | "HR", "Sales", "Finance" |
+| **DataSourceType** | How to get data | "SQL", "StoredProcedure", "API" |
+| **DataSourceValue** | The actual query/procedure | "SELECT * FROM Employees WHERE IsActive = 1" |
+| **AccessRoles** | Who can see it | `["Admin", "HR"]` (JSON format) |
+| **IsActive** | Show/hide report | true/false |
 
-table th, table td {
-  padding: 12px 15px;
-  border: 1px solid #ddd;
-  text-align: left;
-}
+### 2. SnehaReportParameters Table (Report Parameters)
+This table stores the input fields for each report:
 
-table th {
-  background-color: #f0f0f0;
-}
+| Field | Purpose | Example |
+|-------|---------|---------|
+| **ParameterName** | Code name for parameter | "DepartmentId" |
+| **DisplayName** | What user sees | "Select Department" |
+| **ParameterType** | Input type | "Text", "Number", "Date", "Dropdown" |
+| **DefaultValue** | Pre-filled value | "IT" |
+| **IsRequired** | Must fill or optional | true/false |
+| **DropdownOptions** | For dropdown type | `[{"Value":"1","Display":"IT"},{"Value":"2","Display":"HR"}]` |
 
-s {
-  color: #888;
-}
+## 🎯 Sample Data to Insert
 
-button, sdf-button {
-  margin: 4px;
-}
+### Step 1: Insert Sample Reports
 
-input, sdf-input {
-  margin: 6px 0;
-  padding: 10px;
-  width: 100%;
-}
+```sql
+-- Sample Report 1: Employee List
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('Employee List Report', 
+ 'Shows all employees with their basic information', 
+ 'HR', 
+ 'SQL', 
+ 'SELECT EmployeeId, FirstName, LastName, Email, Department, JoinDate FROM Employees WHERE IsActive = 1', 
+ '["Admin", "HR"]', 
+ 1);
 
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-top: 30px;
-  gap: 20px;
-}
-.auth-wrapper {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 90vh;
-  background: #f5f5f5;
-}
+-- Sample Report 2: Department Wise Count
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('Department Employee Count', 
+ 'Shows employee count by department', 
+ 'HR', 
+ 'SQL', 
+ 'SELECT Department, COUNT(*) as EmployeeCount FROM Employees WHERE IsActive = 1 GROUP BY Department', 
+ '["Admin", "HR", "Manager"]', 
+ 1);
 
-.auth-box {
-  background: white;
-  padding: 40px;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  width: 100%;
-  max-width: 400px;
- 
-}
+-- Sample Report 3: Employee by Department (with parameter)
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('Employees by Department', 
+ 'Filter employees by specific department', 
+ 'HR', 
+ 'SQL', 
+ 'SELECT EmployeeId, FirstName, LastName, Email, JoinDate FROM Employees WHERE Department = @DepartmentName AND IsActive = 1', 
+ '["Admin", "HR"]', 
+ 1);
 
-.auth-box h2 {
-  margin-bottom: 20px;
-  text-align: center;
-}
+-- Sample Report 4: Date Range Report (with multiple parameters)
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('New Joiners Report', 
+ 'Shows employees who joined between specific dates', 
+ 'HR', 
+ 'SQL', 
+ 'SELECT EmployeeId, FirstName, LastName, Email, Department, JoinDate FROM Employees WHERE JoinDate BETWEEN @StartDate AND @EndDate ORDER BY JoinDate DESC', 
+ '["Admin", "HR"]', 
+ 1);
 
-.auth-box p {
-  margin-top: 15px;
-  text-align: center;
-}
-.signup{
+-- Sample Report 5: Sales Report
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('Monthly Sales Report', 
+ 'Shows sales data for selected month and year', 
+ 'Sales', 
+ 'SQL', 
+ 'SELECT ProductName, SUM(Quantity) as TotalQuantity, SUM(Amount) as TotalAmount FROM Sales WHERE MONTH(SaleDate) = @Month AND YEAR(SaleDate) = @Year GROUP BY ProductName', 
+ '["Admin", "Sales", "Manager"]', 
+ 1);
+```
 
-  margin-left: 100px;
+### Step 2: Insert Parameters for Reports
 
-}
-.login{
-  margin-left: 150px;
-}
+```sql
+-- Parameters for Report 3: Employees by Department
+INSERT INTO SnehaReportParameters 
+(ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, IsRequired, DropdownOptions)
+VALUES 
+(3, 'DepartmentName', 'Select Department', 'Dropdown', 'IT', 1, 
+ '[{"Value":"IT","Display":"Information Technology"},{"Value":"HR","Display":"Human Resources"},{"Value":"Finance","Display":"Finance"},{"Value":"Sales","Display":"Sales & Marketing"}]');
+
+-- Parameters for Report 4: New Joiners Report
+INSERT INTO SnehaReportParameters 
+(ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, IsRequired)
+VALUES 
+(4, 'StartDate', 'From Date', 'Date', '2024-01-01', 1),
+(4, 'EndDate', 'To Date', 'Date', '2024-12-31', 1);
+
+-- Parameters for Report 5: Monthly Sales Report
+INSERT INTO SnehaReportParameters 
+(ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, IsRequired, DropdownOptions)
+VALUES 
+(5, 'Month', 'Select Month', 'Dropdown', '1', 1, 
+ '[{"Value":"1","Display":"January"},{"Value":"2","Display":"February"},{"Value":"3","Display":"March"},{"Value":"4","Display":"April"},{"Value":"5","Display":"May"},{"Value":"6","Display":"June"},{"Value":"7","Display":"July"},{"Value":"8","Display":"August"},{"Value":"9","Display":"September"},{"Value":"10","Display":"October"},{"Value":"11","Display":"November"},{"Value":"12","Display":"December"}]'),
+(5, 'Year', 'Select Year', 'Number', '2024', 1);
+```
+
+## 🖥️ How to Use the Dashboard
+
+### 1. **Reports Dashboard (Main Page)**
+- **What you see**: Cards showing all your reports
+- **Filter by Category**: Click "HR", "Sales", etc. to filter
+- **Run Report**: Click the blue "Run Report" button on any card
+
+### 2. **Report Viewer Page**
+When you click "Run Report":
+
+#### For Reports WITHOUT Parameters (like Employee List):
+- Just click **"Generate Report"** button
+- Data will appear in a table below
+
+#### For Reports WITH Parameters (like Employees by Department):
+- **Fill the parameter fields**:
+  - Dropdown: Select from the list
+  - Text: Type the value
+  - Date: Pick from date picker
+  - Number: Enter a number
+- Click **"Generate Report"**
+- Data appears based on your filters
+
+### 3. **Create New Report Page**
+Click **"+ Create New Report"** to add a new report:
+
+#### Required Fields:
+- **Report Name**: "My Custom Report"
+- **Data Source Type**: Choose SQL, StoredProcedure, or API
+- **Data Source Value**: Your SQL query or procedure name
+
+#### Optional Fields:
+- **Description**: What the report shows
+- **Category**: Group your reports
+- **Access Roles**: Who can see it (comma separated: "Admin, HR, Sales")
+
+#### Examples:
+
+**Simple SQL Report:**
+```
+Report Name: Active Users Count
+Description: Shows total number of active users
+Category: Admin
+Data Source Type: SQL
+Data Source Value: SELECT COUNT(*) as ActiveUsers FROM Users WHERE IsActive = 1
+```
+
+**SQL Report with Parameters:**
+```
+Report Name: User Search
+Description: Search users by name
+Category: Admin  
+Data Source Type: SQL
+Data Source Value: SELECT * FROM Users WHERE FirstName LIKE '%' + @SearchName + '%'
+```
+
+**Stored Procedure Report:**
+```
+Report Name: Monthly Summary
+Description: Generated monthly business summary
+Category: Reports
+Data Source Type: StoredProcedure
+Data Source Value: GetMonthlySummaryReport
+```
+
+## 🎮 Testing Your Dashboard
+
+### Test Scenario 1: Simple Report (No Parameters)
+1. Go to dashboard
+2. Click "Run Report" on "Employee List Report" 
+3. Click "Generate Report"
+4. Should show employee data in table
+
+### Test Scenario 2: Report with Dropdown Parameter
+1. Click "Run Report" on "Employees by Department"
+2. Select a department from dropdown (e.g., "IT")
+3. Click "Generate Report"
+4. Should show only IT employees
+
+### Test Scenario 3: Report with Date Parameters
+1. Click "Run Report" on "New Joiners Report"
+2. Set From Date: 2024-01-01
+3. Set To Date: 2024-06-30
+4. Click "Generate Report"
+5. Should show employees who joined in first half of 2024
+
+### Test Scenario 4: Create New Report
+1. Click "+ Create New Report"
+2. Fill form:
+   - Name: "Test Report"
+   - Category: "Testing"
+   - Data Source Type: SQL
+   - Data Source Value: `SELECT 'Hello' as Message, GETDATE() as CurrentTime`
+3. Click "Create Report"
+4. Go back to dashboard and run your new report
+
+## 🛠️ Sample Database Tables (for testing)
+
+If you don't have existing tables, create these:
+
+```sql
+-- Sample Employees table
+CREATE TABLE Employees (
+    EmployeeId INT PRIMARY KEY IDENTITY(1,1),
+    FirstName NVARCHAR(50),
+    LastName NVARCHAR(50),
+    Email NVARCHAR(100),
+    Department NVARCHAR(50),
+    JoinDate DATE,
+    IsActive BIT DEFAULT 1
+);
+
+-- Sample data
+INSERT INTO Employees (FirstName, LastName, Email, Department, JoinDate) VALUES
+('John', 'Doe', 'john.doe@company.com', 'IT', '2024-01-15'),
+('Jane', 'Smith', 'jane.smith@company.com', 'HR', '2024-02-20'),
+('Mike', 'Johnson', 'mike.johnson@company.com', 'IT', '2024-03-10'),
+('Sarah', 'Williams', 'sarah.williams@company.com', 'Sales', '2024-04-05'),
+('David', 'Brown', 'david.brown@company.com', 'Finance', '2024-05-12');
+
+-- Sample Sales table
+CREATE TABLE Sales (
+    SaleId INT PRIMARY KEY IDENTITY(1,1),
+    ProductName NVARCHAR(100),
+    Quantity INT,
+    Amount DECIMAL(10,2),
+    SaleDate DATE
+);
+
+-- Sample sales data
+INSERT INTO Sales (ProductName, Quantity, Amount, SaleDate) VALUES
+('Laptop', 5, 5000.00, '2024-01-15'),
+('Mouse', 20, 400.00, '2024-01-16'),
+('Keyboard', 15, 750.00, '2024-02-10'),
+('Monitor', 8, 1600.00, '2024-02-20');
+```
+
+## 🎯 Key Points to Remember
+
+1. **Parameter Names**: In your SQL, use `@ParameterName` (matches ParameterName column)
+2. **JSON Format**: For AccessRoles and DropdownOptions, use proper JSON format
+3. **SQL Security**: Your SQL queries should use parameters (@) to prevent SQL injection
+4. **Testing**: Start with simple reports (no parameters) first, then add complex ones
+5. **Categories**: Use categories to organize your reports logically
+
+This setup gives you a fully functional dynamic reporting system where business users can create reports just by adding database entries! 🚀
