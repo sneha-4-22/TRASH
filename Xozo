@@ -1,3 +1,67 @@
+USE EMPLOYEEMASTER 
+
+CREATE TABLE SnehaReportDefinitions (
+    ReportId INT PRIMARY KEY IDENTITY(1,1),
+    ReportName NVARCHAR(100) NOT NULL,
+    Description NVARCHAR(500),
+    Category NVARCHAR(50),
+    DataSourceType NVARCHAR(50) NOT NULL,
+    DataSourceValue NVARCHAR(MAX) NOT NULL, 
+    Parameters NVARCHAR(MAX),
+    LayoutSettings NVARCHAR(MAX), 
+    AccessRoles NVARCHAR(MAX),
+    IsActive BIT DEFAULT 1,
+    CreatedDate DATETIME DEFAULT GETDATE(),
+    ModifiedDate DATETIME DEFAULT GETDATE()
+);
+
+CREATE TABLE SnehaReportParameters (
+    ParameterId INT PRIMARY KEY IDENTITY(1,1),
+    ReportId INT FOREIGN KEY REFERENCES SnehaReportDefinitions(ReportId),
+    ParameterName NVARCHAR(50) NOT NULL,
+    DisplayName NVARCHAR(100) NOT NULL,
+    ParameterType NVARCHAR(50) NOT NULL, 
+    DefaultValue NVARCHAR(MAX),
+    IsRequired BIT DEFAULT 0,
+    ValidationRule NVARCHAR(500),
+    DropdownOptions NVARCHAR(MAX) 
+);
+SELECT * FROM SnehaReportDefinitions;
+SELECT * FROM SnehaReportParameters;
+
+-- Sample Report 1: Employee List
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('ALL Dreamify Users', 
+ 'Complete list of all users in the system', 
+ 'Users', 
+ 'SQL', 
+ 'SELECT * FROM DREAMIFY_USERS', 
+ '["Admin"]', 
+ 1);
+
+ 
+--shows customers with shipping info and status Pending
+SELECT c.Customer_Id,c.CustomerName,s.Address,s.Status
+FROM Customer c
+JOIN Shipping s
+ON c.Customer_Id=s.Customer_Id WHERE s.Status='Pending';
+DELETE FROM SnehaReportDefinitions WHERE ReportId IN (6,7);
+
+INSERT INTO SnehaReportDefinitions 
+(ReportName, Description, Category, DataSourceType, DataSourceValue, AccessRoles, IsActive)
+VALUES 
+('Staus Details', 
+ 'Shows customers with shipping info and status Pending', 
+ 'STATUS', 
+ 'SQL', 
+ 'SELECT c.Customer_Id,c.CustomerName,s.Address,s.Status
+FROM Customer c
+JOIN Shipping s
+ON c.Customer_Id=s.Customer_Id WHERE s.Status=''Pending'';', 
+ '["Admin"]', 
+ 1);
 import React, { useState, useEffect } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportViewer.css';
