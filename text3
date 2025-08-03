@@ -1,1 +1,1416 @@
+# React Frontend for Custom Report System
 
+## 1. Create React App & Install Dependencies
+
+```bash
+npx create-react-app custom-report-frontend
+cd custom-report-frontend
+npm install axios react-router-dom
+npm start
+```
+
+## 2. Project Structure
+```
+src/
+├── components/
+│   ├── ReportList.js
+│   ├── ReportViewer.js
+│   ├── ReportForm.js
+│   └── Layout.js
+├── services/
+│   └── reportService.js
+├── styles/
+│   ├── App.css
+│   ├── ReportList.css
+│   ├── ReportViewer.css
+│   └── ReportForm.css
+├── App.js
+└── index.js
+```
+
+## 3. API Service (src/services/reportService.js)
+
+```javascript
+import axios from 'axios';
+
+const API_BASE_URL = 'https://localhost:7138/api'; // Update with your actual backend URL
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+export const reportService = {
+  // Get all available reports
+  getAvailableReports: async () => {
+    try {
+      const response = await apiClient.get('/reports');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      throw error;
+    }
+  },
+
+  // Get specific report definition
+  getReportDefinition: async (reportId) => {
+    try {
+      const response = await apiClient.get(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching report definition:', error);
+      throw error;
+    }
+  },
+
+  // Generate report data
+  generateReport: async (reportId, parameters = {}) => {
+    try {
+      const response = await apiClient.post(`/reports/${reportId}/generate`, parameters);
+      return response.data;
+    } catch (error) {
+      console.error('Error generating report:', error);
+      throw error;
+    }
+  },
+
+  // Create new report
+  createReport: async (reportData) => {
+    try {
+      const response = await apiClient.post('/reports', reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating report:', error);
+      throw error;
+    }
+  },
+
+  // Update existing report
+  updateReport: async (reportId, reportData) => {
+    try {
+      const response = await apiClient.put(`/reports/${reportId}`, reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating report:', error);
+      throw error;
+    }
+  },
+
+  // Delete report
+  deleteReport: async (reportId) => {
+    try {
+      const response = await apiClient.delete(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      throw error;
+    }
+  }
+};
+```
+
+## 4. Layout Component (src/components/Layout.js)
+
+```javascript
+import React from 'react';
+import '../styles/App.css';
+
+const Layout = ({ children }) => {
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>📊 Custom Report System</h1>
+        <nav>
+          <a href="/">Reports</a>
+          <a href="/create">Create Report</a>
+        </nav>
+      </header>
+      <main className="app-main">
+        {children}
+      </main>
+      <footer className="app-footer">
+        <p>&copy; 2025 Custom Report System</p>
+      </footer>
+    </div>
+  );
+};
+
+export default Layout;
+```
+
+## 5. Report List Component (src/components/ReportList.js)
+
+```javascript
+import React, { useState, useEffect } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportList.css';
+
+const ReportList = ({ onSelectReport }) => {
+  const [reports, setReports] = useState([]);
+  const [filteredReports, setFilteredReports] = useState([]);
+  const [categories, setCategories] = useState(['All']);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadReports();
+  }, []);
+
+  const loadReports = async () => {
+    try {
+      setLoading(true);
+      const response = await reportService.getAvailableReports();
+      if (response.success) {
+        setReports(response.data);
+        setFilteredReports(response.data);
+        extractCategories(response.data);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to load reports');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extractCategories = (reportsList) => {
+    const uniqueCategories = ['All', ...new Set(reportsList.map(r => r.category).filter(Boolean))];
+    setCategories(uniqueCategories);
+  };
+
+  const filterByCategory = (category) => {
+    setSelectedCategory(category);
+    if (category === 'All') {
+      setFilteredReports(reports);
+    } else {
+      setFilteredReports(reports.filter(r => r.category === category));
+    }
+  };
+
+  if (loading) return <div className="loading">Loading reports...</div>;
+  if (error) return <div className="error">Error: {error}</div>;
+
+  return (
+    <div className="report-list">
+      <h2>Available Reports</h2>
+      
+      <div className="category-filter">
+        <label>Filter by Category:</label>
+        <div className="category-buttons">
+          {categories.map(category => (
+            <button
+              key={category}
+              className={`category-btn ${category === selectedCategory ? 'active' : ''}`}
+              onClick={() => filterByCategory(category)}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="reports-grid">
+        {filteredReports.map(report => (
+          <div key={report.reportId} className="report-card">
+            <div className="report-card-header">
+              <h3>{report.reportName}</h3>
+              <span className="report-category">{report.category}</span>
+            </div>
+            <div className="report-card-body">
+              <p>{report.description}</p>
+              <div className="report-meta">
+                <span className="data-source">{report.dataSourceType}</span>
+                <span className="created-date">
+                  {new Date(report.createdDate).toLocaleDateString()}
+                </span>
+              </div>
+            </div>
+            <div className="report-card-footer">
+              <button 
+                className="btn btn-primary"
+                onClick={() => onSelectReport(report)}
+              >
+                Run Report
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {filteredReports.length === 0 && (
+        <div className="no-reports">
+          <p>No reports available for the selected category.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ReportList;
+```
+
+## 6. Report Viewer Component (src/components/ReportViewer.js)
+
+```javascript
+import React, { useState, useEffect } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportViewer.css';
+
+const ReportViewer = ({ selectedReport, onBack }) => {
+  const [reportDefinition, setReportDefinition] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [parameters, setParameters] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (selectedReport) {
+      loadReportDefinition();
+    }
+  }, [selectedReport]);
+
+  const loadReportDefinition = async () => {
+    try {
+      const response = await reportService.getReportDefinition(selectedReport.reportId);
+      if (response.success) {
+        setReportDefinition(response.data);
+        // Initialize parameters with default values
+        const defaultParams = {};
+        if (response.data.reportParameters) {
+          response.data.reportParameters.forEach(param => {
+            defaultParams[param.parameterName] = param.defaultValue || '';
+          });
+        }
+        setParameters(defaultParams);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to load report definition');
+    }
+  };
+
+  const generateReport = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await reportService.generateReport(selectedReport.reportId, parameters);
+      if (response.success) {
+        setReportData(response.data);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to generate report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleParameterChange = (paramName, value) => {
+    setParameters(prev => ({
+      ...prev,
+      [paramName]: value
+    }));
+  };
+
+  const renderParameterInput = (param) => {
+    const value = parameters[param.parameterName] || '';
+    
+    switch (param.parameterType.toLowerCase()) {
+      case 'text':
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'number':
+        return (
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'date':
+        return (
+          <input
+            type="date"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'dropdown':
+        return (
+          <select
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-select"
+          >
+            <option value="">Select...</option>
+            {param.dropdownOptionsList?.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.display}
+              </option>
+            ))}
+          </select>
+        );
+      default:
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+    }
+  };
+
+  if (!reportDefinition) {
+    return <div className="loading">Loading report...</div>;
+  }
+
+  return (
+    <div className="report-viewer">
+      <div className="report-header">
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to Reports
+        </button>
+        <div className="report-title">
+          <h2>{reportDefinition.reportName}</h2>
+          <p>{reportDefinition.description}</p>
+        </div>
+      </div>
+
+      {reportDefinition.reportParameters && reportDefinition.reportParameters.length > 0 && (
+        <div className="parameters-section">
+          <h3>Parameters</h3>
+          <div className="parameters-form">
+            {reportDefinition.reportParameters.map(param => (
+              <div key={param.parameterId} className="parameter-field">
+                <label htmlFor={param.parameterName}>
+                  {param.displayName}
+                  {param.isRequired && <span className="required">*</span>}
+                </label>
+                {renderParameterInput(param)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="actions-section">
+        <button 
+          className="btn btn-primary"
+          onClick={generateReport}
+          disabled={loading}
+        >
+          {loading ? 'Generating...' : 'Generate Report'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="error-message">
+          {error}
+        </div>
+      )}
+
+      {reportData && (
+        <div className="report-data-section">
+          <div className="report-actions">
+            <h3>Report Results</h3>
+            <div className="export-buttons">
+              <button className="btn btn-outline">Export Excel</button>
+              <button className="btn btn-outline">Export PDF</button>
+              <button className="btn btn-outline">Export CSV</button>
+            </div>
+          </div>
+          
+          <div className="report-table-container">
+            <table className="report-table">
+              <thead>
+                <tr>
+                  {reportData.columns?.map(column => (
+                    <th key={column.Name}>{column.Name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {reportData.rows?.map((row, index) => (
+                  <tr key={index}>
+                    {reportData.columns?.map(column => (
+                      <td key={column.Name}>{row[column.Name]}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {(!reportData.rows || reportData.rows.length === 0) && (
+            <div className="no-data">
+              <p>No data found for the given parameters.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ReportViewer;
+```
+
+## 7. Report Form Component (src/components/ReportForm.js)
+
+```javascript
+import React, { useState } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportForm.css';
+
+const ReportForm = ({ onBack, onSave }) => {
+  const [formData, setFormData] = useState({
+    reportName: '',
+    description: '',
+    category: '',
+    dataSourceType: 'SQL',
+    dataSourceValue: '',
+    accessRoles: '',
+    isActive: true
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const reportData = {
+        ...formData,
+        accessRoles: formData.accessRoles ? `["${formData.accessRoles.split(',').map(r => r.trim()).join('","')}"]` : '[]'
+      };
+      
+      const response = await reportService.createReport(reportData);
+      
+      if (response.success) {
+        setSuccess(true);
+        setTimeout(() => {
+          onSave();
+        }, 2000);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to create report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="success-message">
+        <h2>✅ Report Created Successfully!</h2>
+        <p>Redirecting back to reports list...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-form">
+      <div className="form-header">
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to Reports
+        </button>
+        <h2>Create New Report</h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="form">
+        <div className="form-group">
+          <label htmlFor="reportName">Report Name *</label>
+          <input
+            type="text"
+            id="reportName"
+            name="reportName"
+            value={formData.reportName}
+            onChange={handleInputChange}
+            required
+            className="form-input"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
+            rows="3"
+            className="form-textarea"
+          />
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="category">Category</label>
+            <input
+              type="text"
+              id="category"
+              name="category"
+              value={formData.category}
+              onChange={handleInputChange}
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="dataSourceType">Data Source Type *</label>
+            <select
+              id="dataSourceType"
+              name="dataSourceType"
+              value={formData.dataSourceType}
+              onChange={handleInputChange}
+              required
+              className="form-select"
+            >
+              <option value="SQL">SQL Query</option>
+              <option value="StoredProcedure">Stored Procedure</option>
+              <option value="API">API Endpoint</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="dataSourceValue">
+            {formData.dataSourceType === 'StoredProcedure' ? 'Procedure Name' : 
+             formData.dataSourceType === 'API' ? 'API Endpoint' : 'SQL Query'} *
+          </label>
+          <textarea
+            id="dataSourceValue"
+            name="dataSourceValue"
+            value={formData.dataSourceValue}
+            onChange={handleInputChange}
+            required
+            rows="4"
+            className="form-textarea"
+            placeholder={
+              formData.dataSourceType === 'StoredProcedure' ? 'GetEmployeeReport' :
+              formData.dataSourceType === 'API' ? 'https://api.example.com/data' :
+              'SELECT * FROM TableName WHERE Column = @Parameter'
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="accessRoles">Access Roles (comma separated)</label>
+          <input
+            type="text"
+            id="accessRoles"
+            name="accessRoles"
+            value={formData.accessRoles}
+            onChange={handleInputChange}
+            className="form-input"
+            placeholder="Admin, HR, Sales"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleInputChange}
+            />
+            Active
+          </label>
+        </div>
+
+        {error && (
+          <div className="error-message">
+            {error}
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button type="button" className="btn btn-secondary" onClick={onBack}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Creating...' : 'Create Report'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ReportForm;
+```
+
+## 8. Main App Component (src/App.js)
+
+```javascript
+import React, { useState } from 'react';
+import Layout from './components/Layout';
+import ReportList from './components/ReportList';
+import ReportViewer from './components/ReportViewer';
+import ReportForm from './components/ReportForm';
+import './styles/App.css';
+
+function App() {
+  const [currentView, setCurrentView] = useState('list'); // 'list', 'viewer', 'form'
+  const [selectedReport, setSelectedReport] = useState(null);
+
+  const handleSelectReport = (report) => {
+    setSelectedReport(report);
+    setCurrentView('viewer');
+  };
+
+  const handleBackToList = () => {
+    setCurrentView('list');
+    setSelectedReport(null);
+  };
+
+  const handleCreateReport = () => {
+    setCurrentView('form');
+  };
+
+  const handleSaveReport = () => {
+    setCurrentView('list');
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'viewer':
+        return (
+          <ReportViewer
+            selectedReport={selectedReport}
+            onBack={handleBackToList}
+          />
+        );
+      case 'form':
+        return (
+          <ReportForm
+            onBack={handleBackToList}
+            onSave={handleSaveReport}
+          />
+        );
+      default:
+        return (
+          <div>
+            <div className="page-header">
+              <h2>Reports Dashboard</h2>
+              <button className="btn btn-primary" onClick={handleCreateReport}>
+                + Create New Report
+              </button>
+            </div>
+            <ReportList onSelectReport={handleSelectReport} />
+          </div>
+        );
+    }
+  };
+
+  return (
+    <Layout>
+      {renderCurrentView()}
+    </Layout>
+  );
+}
+
+export default App;
+```
+
+## 9. CSS Styles
+
+### App.css (src/styles/App.css)
+```css
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+  line-height: 1.6;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.app-header nav a {
+  color: white;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.app-header nav a:hover {
+  background-color: rgba(255,255,255,0.2);
+}
+
+.app-main {
+  flex: 1;
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-footer {
+  background-color: #333;
+  color: white;
+  text-align: center;
+  padding: 1rem;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.page-header h2 {
+  color: #333;
+  font-size: 2rem;
+}
+
+/* Button Styles */
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: #4f46e5;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #4338ca;
+}
+
+.btn-primary:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: #6b7280;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #4b5563;
+}
+
+.btn-outline {
+  background-color: transparent;
+  color: #4f46e5;
+  border: 1px solid #4f46e5;
+}
+
+.btn-outline:hover {
+  background-color: #4f46e5;
+  color: white;
+}
+
+/* Form Styles */
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+/* Loading and Error States */
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+}
+
+.error {
+  background-color: #fef2f2;
+  color: #dc2626;
+  padding: 1rem;
+  border-radius: 4px;
+  border: 1px solid #fecaca;
+}
+
+.error-message {
+  background-color: #fef2f2;
+  color: #dc2626;
+  padding: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #fecaca;
+  margin: 1rem 0;
+}
+
+.success-message {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  padding: 2rem;
+  border-radius: 4px;
+  border: 1px solid #bbf7d0;
+  text-align: center;
+}
+```
+
+### ReportList.css (src/styles/ReportList.css)
+```css
+.report-list {
+  max-width: 100%;
+}
+
+.report-list h2 {
+  margin-bottom: 1.5rem;
+  color: #1f2937;
+}
+
+.category-filter {
+  margin-bottom: 2rem;
+}
+
+.category-filter label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.category-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.category-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  background-color: white;
+  color: #374151;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-btn:hover {
+  background-color: #f3f4f6;
+}
+
+.category-btn.active {
+  background-color: #4f46e5;
+  color: white;
+  border-color: #4f46e5;
+}
+
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.report-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.report-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.report-card-header {
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.report-card-header h3 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 1.125rem;
+  flex: 1;
+}
+
+.report-category {
+  background-color: #dbeafe;
+  color: #1e40af;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.report-card-body {
+  padding: 1rem;
+}
+
+.report-card-body p {
+  color: #6b7280;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.report-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.data-source {
+  background-color: #f3f4f6;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.report-card-footer {
+  padding: 1rem;
+  background-color: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+}
+
+.report-card-footer .btn {
+  width: 100%;
+}
+
+.no-reports {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem;
+  color: #6b7280;
+}
+```
+
+### ReportViewer.css (src/styles/ReportViewer.css)
+```css
+.report-viewer {
+  max-width: 100%;
+}
+
+.report-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.report-title {
+  flex: 1;
+}
+
+.report-title h2 {
+  margin: 0 0 0.5rem 0;
+  color: #1f2937;
+  font-size: 1.875rem;
+}
+
+.report-title p {
+  color: #6b7280;
+  margin: 0;
+}
+
+.parameters-section {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.parameters-section h3 {
+  margin: 0 0 1rem 0;
+  color: #1f2937;
+}
+
+.parameters-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.parameter-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.parameter-field label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.required {
+  color: #dc2626;
+  margin-left: 0.25rem;
+}
+
+.actions-section {
+  margin-bottom: 2rem;
+}
+
+.report-data-section {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+}
+
+.report-actions h3 {
+  margin: 0;
+  color: #1f2937;
+}
+
+.export-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.export-buttons .btn {
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+}
+
+.report-table-container {
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.report-table th {
+  background-color: #f3f4f6;
+  color: #374151;
+  font-weight: 600;
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #d1d5db;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.report-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  color: #1f2937;
+}
+
+.report-table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+.no-data {
+  padding: 3rem;
+  text-align: center;
+  color: #6b7280;
+}
+```
+
+### ReportForm.css (src/styles/ReportForm.css)
+```css
+.report-form {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.form-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.form-header h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 1.875rem;
+}
+
+.form {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.success-message h2 {
+  color: #16a34a;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+  }
+  
+  .export-buttons {
+    flex-direction: column;
+  }
+  
+  .category-buttons {
+    justify-content: center;
+  }
+  
+  .reports-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .parameters-form {
+    grid-template-columns: 1fr;
+  }
+  
+  .report-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .report-actions {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+}
+```
+
+## 10. Package.json dependencies
+```json
+{
+  "name": "custom-report-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/react": "^13.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "axios": "^1.4.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.11.0",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
+```
+
+## 11. Setup Instructions
+
+1. **Create React App:**
+```bash
+npx create-react-app custom-report-frontend
+cd custom-report-frontend
+```
+
+2. **Install Dependencies:**
+```bash
+npm install axios react-router-dom
+```
+
+3. **Create Folder Structure:**
+```bash
+mkdir src/components src/services src/styles
+```
+
+4. **Copy all the files** into their respective folders
+
+5. **Update API URL** in `src/services/reportService.js`:
+   - Change `API_BASE_URL` to your actual backend URL (check your backend console for the port)
+
+6. **Start the React App:**
+```bash
+npm start
+```
+
+## 12. Features Included:
+
+✅ **Reports Dashboard** - View all available reports with category filtering
+✅ **Report Execution** - Run reports with parameters
+✅ **Dynamic Forms** - Auto-generated parameter forms based on report definition
+✅ **Data Display** - Clean table format for report results
+✅ **Create Reports** - Simple form to create new reports
+✅ **Responsive Design** - Works on mobile and desktop
+✅ **Error Handling** - Proper error messages and loading states
+✅ **Simple Styling** - Clean, professional CSS without external libraries
+
+## 13. How to Test:
+
+1. Make sure your backend is running
+2. Start the React frontend
+3. Go to `http://localhost:3000`
+4. You should see the reports dashboard
+5. Click "Run Report" on any report to test the viewer
+6. Click "Create New Report" to test the form
+
+The frontend will automatically connect to your backend API and display the reports from your database!
