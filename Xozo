@@ -1,210 +1,310 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { reportService } from '../services/reportService';
-import '../styles/ReportForm.css';
+import '../styles/ReportViewer.css';
 
-const ReportForm = ({ onBack, onSave }) => {
-  const [formData, setFormData] = useState({
-    reportName: '',
-    description: '',
-    category: '',
-    dataSourceType: 'SQL',
-    dataSourceValue: '',
-    accessRoles: '',
-    isActive: true
-  });
+const ReportViewer = ({ selectedReport, onBack }) => {
+  const [reportDefinition, setReportDefinition] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [parameters, setParameters] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(false);
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+  useEffect(() => {
+    if (selectedReport) {
+      loadReportDefinition();
+    }
+  }, [selectedReport]);
+
+  const loadReportDefinition = async () => {
+    try {
+      const response = await reportService.getReportDefinition(selectedReport.reportId);
+      if (response.success) {
+        setReportDefinition(response.data);
+        // Initialize parameters with default values
+        const defaultParams = {};
+        if (response.data.reportParameters) {
+          response.data.reportParameters.forEach(param => {
+            defaultParams[param.parameterName] = param.defaultValue || '';
+          });
+        }
+        setParameters(defaultParams);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to load report definition');
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const generateReport = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Fix: Properly format the accessRoles as JSON string
-      const reportData = {
-        reportName: formData.reportName,
-        description: formData.description,
-        category: formData.category,
-        dataSourceType: formData.dataSourceType,
-        dataSourceValue: formData.dataSourceValue,
-        parameters: null, // Add if needed
-        layoutSettings: null, // Add if needed
-        accessRoles: formData.accessRoles 
-          ? JSON.stringify(formData.accessRoles.split(',').map(r => r.trim())) 
-          : JSON.stringify([]),
-        isActive: formData.isActive
-      };
-      
-      console.log('Sending report data:', reportData); // Debug log
-      
-      const response = await reportService.createReport(reportData);
-      
+      const response = await reportService.generateReport(selectedReport.reportId, parameters);
       if (response.success) {
-        setSuccess(true);
-        setTimeout(() => {
-          onSave();
-        }, 2000);
+        setReportData(response.data);
       } else {
-        setError(response.message || 'Failed to create report');
+        setError(response.message);
       }
     } catch (err) {
-      console.error('Error creating report:', err);
-      setError(err.response?.data?.message || 'Failed to create report');
+      setError('Failed to generate report');
     } finally {
       setLoading(false);
     }
   };
 
-  if (success) {
-    return (
-      <div className="success-message">
-        <h2>✅ Report Created Successfully!</h2>
-        <p>Redirecting back to reports list...</p>
-      </div>
-    );
+  const handleParameterChange = (paramName, value) => {
+    setParameters(prev => ({
+      ...prev,
+      [paramName]: value
+    }));
+  };
+
+  const renderParameterInput = (param) => {
+    const value = parameters[param.parameterName] || '';
+    
+    switch (param.parameterType.toLowerCase()) {
+      case 'text':
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'number':
+        return (
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'date':
+        return (
+          <input
+            type="date"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'dropdown':
+        return (
+          <select
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-select"
+          >
+            <option value="">Select...</option>
+            {param.dropdownOptionsList?.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.display}
+              </option>
+            ))}
+          </select>
+        );
+      default:
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+    }
+  };
+
+  if (!reportDefinition) {
+    return <div className="loading">Loading report...</div>;
   }
 
   return (
-    <div className="report-form">
-      <div className="form-header">
+    <div className="report-viewer">
+      <div className="report-header">
         <button className="btn btn-secondary" onClick={onBack}>
           ← Back to Reports
         </button>
-        <h2>Create New Report</h2>
+        <div className="report-title">
+          <h2>{reportDefinition.reportName}</h2>
+          <p>{reportDefinition.description}</p>
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="form">
-        <div className="form-group">
-          <label htmlFor="reportName">Report Name *</label>
-          <input
-            type="text"
-            id="reportName"
-            name="reportName"
-            value={formData.reportName}
-            onChange={handleInputChange}
-            required
-            className="form-input"
-          />
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="description">Description</label>
-          <textarea
-            id="description"
-            name="description"
-            value={formData.description}
-            onChange={handleInputChange}
-            rows="3"
-            className="form-textarea"
-          />
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="category">Category</label>
-            <input
-              type="text"
-              id="category"
-              name="category"
-              value={formData.category}
-              onChange={handleInputChange}
-              className="form-input"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="dataSourceType">Data Source Type *</label>
-            <select
-              id="dataSourceType"
-              name="dataSourceType"
-              value={formData.dataSourceType}
-              onChange={handleInputChange}
-              required
-              className="form-select"
-            >
-              <option value="SQL">SQL Query</option>
-              <option value="StoredProcedure">Stored Procedure</option>
-              <option value="API">API Endpoint</option>
-            </select>
+      {reportDefinition.reportParameters && reportDefinition.reportParameters.length > 0 && (
+        <div className="parameters-section">
+          <h3>Parameters</h3>
+          <div className="parameters-form">
+            {reportDefinition.reportParameters.map(param => (
+              <div key={param.parameterId} className="parameter-field">
+                <label htmlFor={param.parameterName}>
+                  {param.displayName}
+                  {param.isRequired && <span className="required">*</span>}
+                </label>
+                {renderParameterInput(param)}
+              </div>
+            ))}
           </div>
         </div>
+      )}
 
-        <div className="form-group">
-          <label htmlFor="dataSourceValue">
-            {formData.dataSourceType === 'StoredProcedure' ? 'Procedure Name' : 
-             formData.dataSourceType === 'API' ? 'API Endpoint' : 'SQL Query'} *
-          </label>
-          <textarea
-            id="dataSourceValue"
-            name="dataSourceValue"
-            value={formData.dataSourceValue}
-            onChange={handleInputChange}
-            required
-            rows="4"
-            className="form-textarea"
-            placeholder={
-              formData.dataSourceType === 'StoredProcedure' ? 'GetEmployeeReport' :
-              formData.dataSourceType === 'API' ? 'https://api.example.com/data' :
-              'SELECT * FROM TableName WHERE Column = @Parameter'
-            }
-          />
+      <div className="actions-section">
+        <button 
+          className="btn btn-primary"
+          onClick={generateReport}
+          disabled={loading}
+        >
+          {loading ? 'Generating...' : 'Generate Report'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="error-message">
+          {error}
         </div>
+      )}
 
-        <div className="form-group">
-          <label htmlFor="accessRoles">Access Roles (comma separated)</label>
-          <input
-            type="text"
-            id="accessRoles"
-            name="accessRoles"
-            value={formData.accessRoles}
-            onChange={handleInputChange}
-            className="form-input"
-            placeholder="Admin, HR, Sales"
-          />
-        </div>
-
-        <div className="form-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              name="isActive"
-              checked={formData.isActive}
-              onChange={handleInputChange}
-            />
-            Active
-          </label>
-        </div>
-
-        {error && (
-          <div className="error-message">
-            {error}
+      {reportData && (
+        <div className="report-data-section">
+          <div className="report-actions">
+            <h3>Report Results</h3>
+            <div className="export-buttons">
+              <button className="btn btn-outline">Export Excel</button>
+              <button className="btn btn-outline">Export PDF</button>
+              <button className="btn btn-outline">Export CSV</button>
+            </div>
           </div>
-        )}
-
-        <div className="form-actions">
-          <button type="button" className="btn btn-secondary" onClick={onBack}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Creating...' : 'Create Report'}
-          </button>
+          
+          <div className="report-table-container">
+            <table className="report-table">
+              <thead>
+                <tr>
+                  {reportData.columns?.map((column, index) => {
+                    // Handle different possible column structures
+                    const columnName = column.name || column.Name || column.columnName || column.ColumnName;
+                    return (
+                      <th key={`header-${index}`}>{columnName}</th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {reportData.rows?.map((row, rowIndex) => (
+                  <tr key={`row-${rowIndex}`}>
+                    {reportData.columns?.map((column, colIndex) => {
+                      // Handle different possible column structures
+                      const columnName = column.name || column.Name || column.columnName || column.ColumnName;
+                      const cellValue = row[columnName];
+                      
+                      // Format the cell value based on type if needed
+                      let displayValue = cellValue;
+                      if (cellValue && column.type) {
+                        switch (column.type.toLowerCase()) {
+                          case 'datetime':
+                            displayValue = new Date(cellValue).toLocaleString();
+                            break;
+                          case 'date':
+                            displayValue = new Date(cellValue).toLocaleDateString();
+                            break;
+                          case 'boolean':
+                            displayValue = cellValue ? 'Yes' : 'No';
+                            break;
+                          default:
+                            displayValue = cellValue;
+                        }
+                      }
+                      
+                      return (
+                        <td key={`cell-${rowIndex}-${colIndex}`}>
+                          {displayValue !== null && displayValue !== undefined ? displayValue : ''}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {(!reportData.rows || reportData.rows.length === 0) && (
+            <div className="no-data">
+              <p>No data found for the given parameters.</p>
+            </div>
+            )}
         </div>
-      </form>
+      )}
     </div>
   );
 };
 
-export default ReportForm;
+export default ReportViewer;
+OST http://localhost:5118/api/reports/9/generate 400 (Bad Request)
+dispatchXhrRequest @ xhr.js:195
+xhr @ xhr.js:15
+dispatchRequest @ dispatchRequest.js:51
+_request @ Axios.js:187
+request @ Axios.js:40
+httpMethod @ Axios.js:226
+wrap @ bind.js:5
+generateReport @ reportService.js:38
+generateReport @ ReportViewer.js:43
+executeDispatch @ react-dom-client.development.js:16368
+runWithFiberInDEV @ react-dom-client.development.js:1518
+processDispatchQueue @ react-dom-client.development.js:16417
+(anonymous) @ react-dom-client.development.js:17016
+batchedUpdates$1 @ react-dom-client.development.js:3262
+dispatchEventForPluginEventSystem @ react-dom-client.development.js:16572
+dispatchEvent @ react-dom-client.development.js:20657
+dispatchDiscreteEvent @ react-dom-client.development.js:20625
+<button>
+exports.jsxDEV @ react-jsx-dev-runtime.development.js:336
+ReportViewer @ ReportViewer.js:159
+react_stack_bottom_frame @ react-dom-client.development.js:23863
+renderWithHooksAgain @ react-dom-client.development.js:5629
+renderWithHooks @ react-dom-client.development.js:5541
+updateFunctionComponent @ react-dom-client.development.js:8897
+beginWork @ react-dom-client.development.js:10522
+runWithFiberInDEV @ react-dom-client.development.js:1518
+performUnitOfWork @ react-dom-client.development.js:15130
+workLoopSync @ react-dom-client.development.js:14956
+renderRootSync @ react-dom-client.development.js:14936
+performWorkOnRoot @ react-dom-client.development.js:14417
+performWorkOnRootViaSchedulerTask @ react-dom-client.development.js:16216
+performWorkUntilDeadline @ scheduler.development.js:45
+<ReportViewer>
+exports.jsxDEV @ react-jsx-dev-runtime.development.js:336
+renderCurrentView @ App.js:33
+App @ App.js:62
+react_stack_bottom_frame @ react-dom-client.development.js:23863
+renderWithHooksAgain @ react-dom-client.development.js:5629
+renderWithHooks @ react-dom-client.development.js:5541
+updateFunctionComponent @ react-dom-client.development.js:8897
+beginWork @ react-dom-client.development.js:10522
+runWithFiberInDEV @ react-dom-client.development.js:1518
+performUnitOfWork @ react-dom-client.development.js:15130
+workLoopSync @ react-dom-client.development.js:14956
+renderRootSync @ react-dom-client.development.js:14936
+performWorkOnRoot @ react-dom-client.development.js:14417
+performSyncWorkOnRoot @ react-dom-client.development.js:16231
+flushSyncWorkAcrossRoots_impl @ react-dom-client.development.js:16068
+processRootScheduleInMicrotask @ react-dom-client.development.js:16116
+(anonymous) @ react-dom-client.development.js:16245
+<App>
+exports.jsxDEV @ react-jsx-dev-runtime.development.js:336
+./src/index.js @ index.js:9
+options.factory @ react refresh:37
+__webpack_require__ @ bootstrap:22
+(anonymous) @ startup:7
+(anonymous) @ startup:7
+reportService.js:41  Error generating report: AxiosError {message: 'Request failed with status code 400', name: 'AxiosError', code: 'ERR_BAD_REQUEST', config: {…}, request: XMLHttpRequest, …}
 
 Dynamic Report Builder
 I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
