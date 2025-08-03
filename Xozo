@@ -187,17 +187,47 @@ const ReportViewer = ({ selectedReport, onBack }) => {
             <table className="report-table">
               <thead>
                 <tr>
-                  {reportData.columns?.map(column => (
-                    <th key={column.Name}>{column.Name}</th>
-                  ))}
+                  {reportData.columns?.map((column, index) => {
+                    // Handle different possible column structures
+                    const columnName = column.name || column.Name || column.columnName || column.ColumnName;
+                    return (
+                      <th key={`header-${index}`}>{columnName}</th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {reportData.rows?.map((row, index) => (
-                  <tr key={index}>
-                    {reportData.columns?.map(column => (
-                      <td key={column.Name}>{row[column.Name]}</td>
-                    ))}
+                {reportData.rows?.map((row, rowIndex) => (
+                  <tr key={`row-${rowIndex}`}>
+                    {reportData.columns?.map((column, colIndex) => {
+                      // Handle different possible column structures
+                      const columnName = column.name || column.Name || column.columnName || column.ColumnName;
+                      const cellValue = row[columnName];
+                      
+                      // Format the cell value based on type if needed
+                      let displayValue = cellValue;
+                      if (cellValue && column.type) {
+                        switch (column.type.toLowerCase()) {
+                          case 'datetime':
+                            displayValue = new Date(cellValue).toLocaleString();
+                            break;
+                          case 'date':
+                            displayValue = new Date(cellValue).toLocaleDateString();
+                            break;
+                          case 'boolean':
+                            displayValue = cellValue ? 'Yes' : 'No';
+                            break;
+                          default:
+                            displayValue = cellValue;
+                        }
+                      }
+                      
+                      return (
+                        <td key={`cell-${rowIndex}-${colIndex}`}>
+                          {displayValue !== null && displayValue !== undefined ? displayValue : ''}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -208,7 +238,7 @@ const ReportViewer = ({ selectedReport, onBack }) => {
             <div className="no-data">
               <p>No data found for the given parameters.</p>
             </div>
-          )}
+            )}
         </div>
       )}
     </div>
@@ -216,110 +246,6 @@ const ReportViewer = ({ selectedReport, onBack }) => {
 };
 
 export default ReportViewer;
-Responses
-Curl
-
-curl -X 'POST' \
-  'http://localhost:5118/api/Reports/8/generate' \
-  -H 'accept: text/plain' \
-  -H 'Content-Type: application/json' \
-  -d '{}'
-Request URL
-http://localhost:5118/api/Reports/8/generate
-Server response
-Code	Details
-200	
-Response body
-Download
-{
-  "success": true,
-  "message": "Success",
-  "data": {
-    "metadata": {
-      "reportId": 8,
-      "reportName": "ALL Dreamify Users",
-      "description": "Complete list of all users in the system",
-      "category": "Users",
-      "dataSourceType": "SQL",
-      "dataSourceValue": "SELECT * FROM DREAMIFY_USERS",
-      "parameters": null,
-      "layoutSettings": null,
-      "accessRoles": "[\"Admin\"]",
-      "isActive": true,
-      "createdDate": "2025-08-03T04:15:52.137",
-      "modifiedDate": "2025-08-03T04:15:52.137",
-      "reportParameters": [],
-      "accessRolesList": [
-        "Admin"
-      ]
-    },
-    "columns": [
-      {
-        "name": "Id",
-        "type": "Int32"
-      },
-      {
-        "name": "Email",
-        "type": "String"
-      },
-      {
-        "name": "PasswordHash",
-        "type": "String"
-      },
-      {
-        "name": "CreatedAt",
-        "type": "DateTime"
-      }
-    ],
-    "rows": [
-      {
-        "Id": 1,
-        "Email": "sneha@xyz.com",
-        "PasswordHash": "f0EPjElKTR7dgB0WGjBHsA==.OCTW1emYyFB9XBddSzMukJ91enlcx2k/f+n0YGYW0w4=",
-        "CreatedAt": "2025-07-30T08:08:36.2344589"
-      },
-      {
-        "Id": 2,
-        "Email": "yoyo@gmail.com",
-        "PasswordHash": "qOxG+8RrHRe9GZTGYTBbnw==.RSynvKl1N3UXONMWCe3+ZlCUh0uiLnUYxVBcCxT9g/4=",
-        "CreatedAt": "2025-07-30T09:40:31.6711179"
-      },
-      {
-        "Id": 3,
-        "Email": "sneha@gmail.com",
-        "PasswordHash": "vF7AT32NImwcUgl4Yr2Dbg==.lElE7C+3MzHci/CUoiaHmKe13z/UmkzwmnFkUCGACpM=",
-        "CreatedAt": "2025-07-30T10:14:00.0700303"
-      },
-      {
-        "Id": 4,
-        "Email": "zozo@gmail.com",
-        "PasswordHash": "BrfbHksQgD9EQVMgTZFRSA==.lAXYduh31MBhSybflj76FyPoVA+wC6dS+3ENAU/3CWQ=",
-        "CreatedAt": "2025-07-31T12:38:58.5889716"
-      },
-      {
-        "Id": 5,
-        "Email": "yoyo2@gmail.com",
-        "PasswordHash": "+WMX/cK2iawpeBuU1nbW5w==.j9GjcEVPL/6JsDdcg/Myqh26fDU5VWrXeOGnQvjXxV4=",
-        "CreatedAt": "2025-07-31T12:41:47.9082546"
-      }
-    ]
-  },
-  "errors": []
-}
-Response headers
- content-type: application/json; charset=utf-8 
- date: Sun,03 Aug 2025 08:20:39 GMT 
- server: Kestrel 
- transfer-encoding: chunked 
-Responses
-Code	Description	Links
-200	
-OK
-
-Media type
-ReportViewer.js:191  Each child in a list should have a unique "key" prop.
-
-Check the render method of `ReportViewer`. See https://react.dev/link/warning-keys for more information.
 
 Dynamic Report Builder
 I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
