@@ -1,4 +1,21 @@
-import React from 'react';
+reportService.js:43  Response Error: {url: '/reports', status: 400, message: 'Request failed with status code 400', data: {…}}
+(anonymous) @ reportService.js:43
+Promise.then
+_request @ Axios.js:163
+request @ Axios.js:40
+httpMethod @ Axios.js:226
+wrap @ bind.js:5
+createReport @ reportService.js:120
+handleSubmit @ ReportForm.js:38
+executeDispatch @ react-dom-client.development.js:16368
+runWithFiberInDEV @ react-dom-client.development.js:1518
+processDispatchQueue @ react-dom-client.development.js:16417
+(anonymous) @ react-dom-client.development.js:17016
+batchedUpdates$1 @ react-dom-client.development.js:3262
+dispatchEventForPluginEventSystem @ react-dom-client.development.js:16572
+dispatchEvent @ react-dom-client.development.js:20657
+dispatchDiscreteEvent @ react-dom-client.development.js:20625
+reportService.js:123  Error creating report: AxiosError {message: 'Request failed with status code 400', name: 'AxiosError', code: 'ERR_BAD_REQUEST', config: {…}, request: XMLHttpRequest, …}import React from 'react';
 import '../App.css';
 
 const Layout = ({ children }) => {
