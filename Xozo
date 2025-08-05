@@ -1,3 +1,918 @@
+import React from 'react';
+import '../App.css';
+
+const Layout = ({ children }) => {
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>📊 Custom Report System</h1>
+        <nav>
+          <a href="/">Reports</a>
+          <a href="/create">Create Report</a>
+        </nav>
+      </header>
+      <main className="app-main">
+        {children}
+      </main>
+      <footer className="app-footer">
+        <p>&copy; 2025 Custom Report System</p>
+      </footer>
+    </div>
+  );
+};
+
+export default Layout;import React, { useState } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportForm.css';
+
+const ReportForm = ({ onBack, onSave }) => {
+  const [formData, setFormData] = useState({
+    reportName: '',
+    description: '',
+    category: '',
+    dataSourceType: 'SQL',
+    dataSourceValue: '',
+    accessRoles: '',
+    isActive: true
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const reportData = {
+        ...formData,
+        accessRoles: formData.accessRoles ? `["${formData.accessRoles.split(',').map(r => r.trim()).join('","')}"]` : '[]'
+      };
+      
+      const response = await reportService.createReport(reportData);
+      
+      if (response.success) {
+        setSuccess(true);
+        setTimeout(() => {
+          onSave();
+        }, 2000);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to create report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="success-message">
+        <h2>✅ Report Created Successfully!</h2>
+        <p>Redirecting back to reports list...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-form">
+      <div className="form-header">
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to Reports
+        </button>
+        <h2>Create New Report</h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="form">
+        <div className="form-group">
+          <label htmlFor="reportName">Report Name *</label>
+          <input
+            type="text"
+            id="reportName"
+            name="reportName"
+            value={formData.reportName}
+            onChange={handleInputChange}
+            required
+            className="form-input"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
+            rows="3"
+            className="form-textarea"
+          />
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="category">Category</label>
+            <input
+              type="text"
+              id="category"
+              name="category"
+              value={formData.category}
+              onChange={handleInputChange}
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="dataSourceType">Data Source Type *</label>
+            <select
+              id="dataSourceType"
+              name="dataSourceType"
+              value={formData.dataSourceType}
+              onChange={handleInputChange}
+              required
+              className="form-select"
+            >
+              <option value="SQL">SQL Query</option>
+              <option value="StoredProcedure">Stored Procedure</option>
+              <option value="API">API Endpoint</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="dataSourceValue">
+            {formData.dataSourceType === 'StoredProcedure' ? 'Procedure Name' : 
+             formData.dataSourceType === 'API' ? 'API Endpoint' : 'SQL Query'} *
+          </label>
+          <textarea
+            id="dataSourceValue"
+            name="dataSourceValue"
+            value={formData.dataSourceValue}
+            onChange={handleInputChange}
+            required
+            rows="4"
+            className="form-textarea"
+            placeholder={
+              formData.dataSourceType === 'StoredProcedure' ? 'GetEmployeeReport' :
+              formData.dataSourceType === 'API' ? 'https://api.example.com/data' :
+              'SELECT * FROM TableName WHERE Column = @Parameter'
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="accessRoles">Access Roles (comma separated)</label>
+          <input
+            type="text"
+            id="accessRoles"
+            name="accessRoles"
+            value={formData.accessRoles}
+            onChange={handleInputChange}
+            className="form-input"
+            placeholder="Admin, HR, Sales"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleInputChange}
+            />
+            Active
+          </label>
+        </div>
+
+        {error && (
+          <div className="error-message">
+            {error}
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button type="button" className="btn btn-secondary" onClick={onBack}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Creating...' : 'Create Report'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ReportForm;import React, { useState, useEffect } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportList.css';
+
+const ReportList = ({ onSelectReport }) => {
+  const [reports, setReports] = useState([]);
+  const [filteredReports, setFilteredReports] = useState([]);
+  const [categories, setCategories] = useState(['All']);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadReports();
+  }, []);
+
+  const loadReports = async () => {
+    try {
+      setLoading(true);
+      const response = await reportService.getAvailableReports();
+      if (response.success) {
+        setReports(response.data);
+        setFilteredReports(response.data);
+        extractCategories(response.data);
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      setError('Failed to load reports');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extractCategories = (reportsList) => {
+    const uniqueCategories = ['All', ...new Set(reportsList.map(r => r.category).filter(Boolean))];
+    setCategories(uniqueCategories);
+  };
+
+  const filterByCategory = (category) => {
+    setSelectedCategory(category);
+    if (category === 'All') {
+      setFilteredReports(reports);
+    } else {
+      setFilteredReports(reports.filter(r => r.category === category));
+    }
+  };
+
+  if (loading) return <div className="loading">Loading reports...</div>;
+  if (error) return <div className="error">Error: {error}</div>;
+
+  return (
+    <div className="report-list">
+      <h2>Available Reports</h2>
+      
+      <div className="category-filter">
+        <label>Filter by Category:</label>
+        <div className="category-buttons">
+          {categories.map(category => (
+            <button
+              key={category}
+              className={`category-btn ${category === selectedCategory ? 'active' : ''}`}
+              onClick={() => filterByCategory(category)}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="reports-grid">
+        {filteredReports.map(report => (
+          <div key={report.reportId} className="report-card">
+            <div className="report-card-header">
+              <h3>{report.reportName}</h3>
+              <span className="report-category">{report.category}</span>
+            </div>
+            <div className="report-card-body">
+              <p>{report.description}</p>
+              <div className="report-meta">
+                <span className="data-source">{report.dataSourceType}</span>
+                <span className="created-date">
+                  {new Date(report.createdDate).toLocaleDateString()}
+                </span>
+              </div>
+            </div>
+            <div className="report-card-footer">
+              <button 
+                className="btn btn-primary"
+                onClick={() => onSelectReport(report)}
+              >
+                Run Report
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {filteredReports.length === 0 && (
+        <div className="no-reports">
+          <p>No reports available for the selected category.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ReportList;import React, { useState, useEffect } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportViewer.css';
+
+const ReportViewer = ({ selectedReport, onBack }) => {
+  const [reportDefinition, setReportDefinition] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [parameters, setParameters] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (selectedReport) {
+      loadReportDefinition();
+    }
+  }, [selectedReport]);
+
+  const loadReportDefinition = async () => {
+    try {
+      setError(null);
+      const response = await reportService.getReportDefinition(selectedReport.reportId);
+      if (response.success) {
+        setReportDefinition(response.data);
+        // Initialize parameters with default values
+        const defaultParams = {};
+        if (response.data.reportParameters) {
+          response.data.reportParameters.forEach(param => {
+            defaultParams[param.parameterName] = param.defaultValue || '';
+          });
+        }
+        setParameters(defaultParams);
+        
+        // If no parameters required, auto-generate report
+        if (!response.data.reportParameters || response.data.reportParameters.length === 0) {
+          generateReport(defaultParams);
+        }
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      console.error('Error loading report definition:', err);
+      setError('Failed to load report definition');
+    }
+  };
+
+  const generateReport = async (paramOverrides = null) => {
+    try {
+      setLoading(true);
+      setError(null);
+      setReportData(null);
+      
+      const paramsToUse = paramOverrides || parameters;
+      
+      // Validate required parameters
+      if (reportDefinition?.reportParameters) {
+        const requiredParams = reportDefinition.reportParameters.filter(p => p.isRequired);
+        for (const param of requiredParams) {
+          if (!paramsToUse[param.parameterName] || 
+              paramsToUse[param.parameterName].toString().trim() === '') {
+            setError(`Required parameter '${param.displayName}' is missing or empty`);
+            return;
+          }
+        }
+      }
+      
+      console.log('Generating report with parameters:', paramsToUse);
+      
+      const response = await reportService.generateReport(selectedReport.reportId, paramsToUse);
+      
+      if (response.success) {
+        setReportData(response.data);
+        console.log('Report generated successfully:', response.data);
+      } else {
+        setError(response.message || 'Failed to generate report');
+      }
+    } catch (err) {
+      console.error('Error generating report:', err);
+      setError(`Failed to generate report: ${err.message || 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleParameterChange = (paramName, value) => {
+    setParameters(prev => ({
+      ...prev,
+      [paramName]: value
+    }));
+  };
+
+  const renderParameterInput = (param) => {
+    const value = parameters[param.parameterName] || '';
+    
+    switch (param.parameterType.toLowerCase()) {
+      case 'text':
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+            placeholder={param.defaultValue || `Enter ${param.displayName}`}
+          />
+        );
+      case 'number':
+        return (
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+            placeholder={param.defaultValue || `Enter ${param.displayName}`}
+          />
+        );
+      case 'date':
+        return (
+          <input
+            type="date"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+          />
+        );
+      case 'dropdown':
+        return (
+          <select
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-select"
+          >
+            <option value="">Select...</option>
+            {param.dropdownOptionsList?.map((option, index) => (
+              <option key={index} value={option.Value || option.value}>
+                {option.Display || option.display}
+              </option>
+            ))}
+          </select>
+        );
+      default:
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+            className="form-input"
+            placeholder={param.defaultValue || `Enter ${param.displayName}`}
+          />
+        );
+    }
+  };
+
+  const exportData = (format) => {
+    if (!reportData || !reportData.rows) {
+      alert('No data to export');
+      return;
+    }
+
+    try {
+      switch (format) {
+        case 'csv':
+          exportToCsv();
+          break;
+        case 'excel':
+          alert('Excel export feature coming soon!');
+          break;
+        case 'pdf':
+          alert('PDF export feature coming soon!');
+          break;
+        default:
+          alert('Unsupported export format');
+      }
+    } catch (err) {
+      console.error('Export error:', err);
+      alert('Failed to export data');
+    }
+  };
+
+  const exportToCsv = () => {
+    const headers = reportData.columns.map(col => col.Name).join(',');
+    const rows = reportData.rows.map(row => 
+      reportData.columns.map(col => {
+        const value = row[col.Name];
+        // Escape commas and quotes in CSV
+        if (value && typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value || '';
+      }).join(',')
+    );
+
+    const csvContent = [headers, ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${reportDefinition.reportName}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (!reportDefinition) {
+    return (
+      <div className="report-viewer">
+        <div className="loading">Loading report...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-viewer">
+      <div className="report-header">
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to Reports
+        </button>
+        <div className="report-title">
+          <h2>{reportDefinition.reportName}</h2>
+          <p>{reportDefinition.description}</p>
+        </div>
+      </div>
+
+      {reportDefinition.reportParameters && reportDefinition.reportParameters.length > 0 && (
+        <div className="parameters-section">
+          <h3>Parameters</h3>
+          <div className="parameters-form">
+            {reportDefinition.reportParameters.map(param => (
+              <div key={param.parameterId} className="parameter-field">
+                <label htmlFor={param.parameterName}>
+                  {param.displayName}
+                  {param.isRequired && <span className="required">*</span>}
+                </label>
+                {renderParameterInput(param)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="actions-section">
+        <button 
+          className="btn btn-primary"
+          onClick={() => generateReport()}
+          disabled={loading}
+        >
+          {loading ? 'Generating...' : 'Generate Report'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="error-message">
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {reportData && (
+        <div className="report-data-section">
+          <div className="report-actions">
+            <h3>Report Results ({reportData.rows?.length || 0} records)</h3>
+            <div className="export-buttons">
+              <button 
+                className="btn btn-outline"
+                onClick={() => exportData('csv')}
+                disabled={!reportData.rows || reportData.rows.length === 0}
+              >
+                Export CSV
+              </button>
+              <button 
+                className="btn btn-outline"
+                onClick={() => exportData('excel')}
+                disabled={!reportData.rows || reportData.rows.length === 0}
+              >
+                Export Excel
+              </button>
+              <button 
+                className="btn btn-outline"
+                onClick={() => exportData('pdf')}
+                disabled={!reportData.rows || reportData.rows.length === 0}
+              >
+                Export PDF
+              </button>
+            </div>
+          </div>
+          
+          <div className="report-table-container">
+            {reportData.rows && reportData.rows.length > 0 ? (
+              <table className="report-table">
+                <thead>
+                  <tr>
+                    {reportData.columns?.map((column, index) => {
+                      const columnName = column.Name || column.name || column.columnName || column.ColumnName;
+                      return (
+                        <th key={`header-${index}`}>{columnName}</th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.rows.map((row, rowIndex) => (
+                    <tr key={`row-${rowIndex}`}>
+                      {reportData.columns?.map((column, colIndex) => {
+                        const columnName = column.Name || column.name || column.columnName || column.ColumnName;
+                        const cellValue = row[columnName];
+                        
+                        // Format the cell value based on type if needed
+                        let displayValue = cellValue;
+                        if (cellValue && column.Type) {
+                          switch (column.Type.toLowerCase()) {
+                            case 'datetime':
+                              try {
+                                displayValue = new Date(cellValue).toLocaleString();
+                              } catch {
+                                displayValue = cellValue;
+                              }
+                              break;
+                            case 'date':
+                              try {
+                                displayValue = new Date(cellValue).toLocaleDateString();
+                              } catch {
+                                displayValue = cellValue;
+                              }
+                              break;
+                            case 'boolean':
+                              displayValue = cellValue ? 'Yes' : 'No';
+                              break;
+                            default:
+                              displayValue = cellValue;
+                          }
+                        }
+                        
+                        return (
+                          <td key={`cell-${rowIndex}-${colIndex}`}>
+                            {displayValue !== null && displayValue !== undefined ? displayValue.toString() : ''}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="no-data">
+                <p>No data found for the given parameters.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ReportViewer;
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:5118/api';
+
+// Configure axios defaults
+axios.defaults.timeout = 30000; // 30 seconds timeout
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add request interceptor for logging
+api.interceptors.request.use(
+  (config) => {
+    console.log('API Request:', {
+      method: config.method,
+      url: config.url,
+      data: config.data,
+      params: config.params
+    });
+    return config;
+  },
+  (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for logging and error handling
+api.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', {
+      url: response.config.url,
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    console.error('Response Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.message,
+      data: error.response?.data
+    });
+    return Promise.reject(error);
+  }
+);
+
+export const reportService = {
+  // Get all available reports
+  async getAvailableReports() {
+    try {
+      const response = await api.get('/reports');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      throw error;
+    }
+  },
+
+  // Get report definition by ID
+  async getReportDefinition(reportId) {
+    try {
+      const response = await api.get(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching report definition:', error);
+      throw error;
+    }
+  },
+
+  // Generate report with parameters
+  async generateReport(reportId, parameters = {}) {
+    try {
+      console.log('Generating report:', { reportId, parameters });
+      
+      // Ensure parameters is an object and not null/undefined
+      const cleanedParameters = parameters || {};
+      
+      // Remove any null or undefined values
+      const filteredParameters = Object.entries(cleanedParameters).reduce((acc, [key, value]) => {
+        if (value !== null && value !== undefined && value !== '') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+
+      const requestBody = {
+        parameters: filteredParameters
+      };
+
+      console.log('Request body:', requestBody);
+
+      const response = await api.post(`/reports/${reportId}/generate`, requestBody);
+      return response.data;
+    } catch (error) {
+      console.error('Error generating report:', error);
+      
+      // Return a more user-friendly error response
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.errors?.join(', ') || 
+                          error.message || 
+                          'An unexpected error occurred';
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Create a new report
+  async createReport(reportData) {
+    try {
+      const response = await api.post('/reports', reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating report:', error);
+      throw error;
+    }
+  },
+
+  // Update an existing report
+  async updateReport(reportId, reportData) {
+    try {
+      const response = await api.put(`/reports/${reportId}`, reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating report:', error);
+      throw error;
+    }
+  },
+
+  // Delete a report
+  async deleteReport(reportId) {
+    try {
+      const response = await api.delete(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      throw error;
+    }
+  },
+
+  // Export report data
+  async exportReport(reportId, parameters = {}, format = 'csv') {
+    try {
+      const response = await api.post(`/reports/${reportId}/export`, {
+        parameters,
+        format
+      }, {
+        responseType: 'blob'
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      throw error;
+    }
+  }
+};
+import React, { useState } from 'react';
+import Layout from './components/Layout';
+import ReportList from './components/ReportList';
+import ReportViewer from './components/ReportViewer';
+import ReportForm from './components/ReportForm';
+import './App.css';
+
+function App() {
+  const [currentView, setCurrentView] = useState('list'); // 'list', 'viewer', 'form'
+  const [selectedReport, setSelectedReport] = useState(null);
+
+  const handleSelectReport = (report) => {
+    setSelectedReport(report);
+    setCurrentView('viewer');
+  };
+
+  const handleBackToList = () => {
+    setCurrentView('list');
+    setSelectedReport(null);
+  };
+
+  const handleCreateReport = () => {
+    setCurrentView('form');
+  };
+
+  const handleSaveReport = () => {
+    setCurrentView('list');
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'viewer':
+        return (
+          <ReportViewer
+            selectedReport={selectedReport}
+            onBack={handleBackToList}
+          />
+        );
+      case 'form':
+        return (
+          <ReportForm
+            onBack={handleBackToList}
+            onSave={handleSaveReport}
+          />
+        );
+      default:
+        return (
+          <div>
+            <div className="page-header">
+              <h2>Reports Dashboard</h2>
+              <button className="btn btn-primary" onClick={handleCreateReport}>
+                + Create New Report
+              </button>
+            </div>
+            <ReportList onSelectReport={handleSelectReport} />
+          </div>
+        );
+    }
+  };
+
+  return (
+    <Layout>
+      {renderCurrentView()}
+    </Layout>
+  );
+}
+
+export default App;
 
 Dynamic Report Builder
 I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
