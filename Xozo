@@ -39,6 +39,8 @@ const Layout = ({ children }) => {
 };
 
 export default Layout;import React, { useState } from 'react';
+
+import React, { useState } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportForm.css';
 
@@ -71,10 +73,15 @@ const ReportForm = ({ onBack, onSave }) => {
       setError(null);
       
       const reportData = {
-        ...formData,
-        accessRoles: formData.accessRoles ? `["${formData.accessRoles.split(',').map(r => r.trim()).join('","')}"]` : '[]'
+        reportName:formData.reportName,
+        description:formData.description,
+        category:formData.category,
+        dataSourceType:formData.dataSourceType,
+        DataSourceValue:formData.dataSourceValue,
+        accessRoles: formData.accessRoles ? formData.accessRoles.split(',').map(r=>r.trim()).filter(r=>r.length>0):[],
+        isActive:formData.isActive
       };
-      
+      console.log('Sending report data:',reportData);
       const response = await reportService.createReport(reportData);
       
       if (response.success) {
@@ -231,7 +238,9 @@ const ReportForm = ({ onBack, onSave }) => {
   );
 };
 
-export default ReportForm;import React, { useState, useEffect } from 'react';
+export default ReportForm;
+
+import React, { useState, useEffect } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportList.css';
 
