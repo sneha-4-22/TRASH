@@ -1,29 +1,4 @@
-DATE	TO DO	TASK COMPLETED	Next day plan
-7-Jul-25	confirmed tech stack SQL , C# , .NET , REACT	completed sql basics to some extent and did exercises upto topic Joins 	Continue sql 
-8-Jul-25	SOLVE quizes and exercises 	conpleted topics including Group by ,  having , how to write subqueries , Limit offset , Limit	Finish remaining exercises
-9-Jul-25	COMPLETE SQL FUNDAMENTELS	Watched SQL lecture on YT Understood  the topic Constraints 	Will do practice on Leetcode
-10-Jul-25	SQL LEETCODE QUESTIONS (https://leetcode.com/studyplan/top-sql-50/)	revision  , leetcode question solving ,  had a meeting with buddy what to do next 	Stored procedures and getting started with c# 
-11-Jul-25	1. Study Stored procedure          2. Go through  ES 4O1K Database                                                     3. Getting started with C#	Stored Procedure , Explored Pricing and pricing history table performed joins , count the total no of rows , diff b/w them , perform aggregate function	getting access for udemy , c# delegates,  raw string ,  variables and types
-		SATURDAY SUNDAY	
-14-Jul-25	https://www.csharptutorial.net/csharp-tutorial/	variable and types , raw strings, List Pattern, delegates (single cast , multiple, multi cast), indexes	learning advance topics 
-15-Jul-25	OOPS , Collections	implemented a cal using c# added static methods add , sub, mul div   - Collections	connecting sql sever , 
-16-Jul-25	Complete CRUD Console based Goal Tracker , exception handling	Implemented Add , view ,Update,Mark as completed , delete   using static methods and interface	LINQ
-17-Jul-25	vs code csharp setup                    LINQ                                                       	Practised Linq queries in vs code Implemented filtering, transformation, accessing data , sorting , aggregate funs, removing duplicates , checking conditions 	.net basics , ASP.NET Basics
-18-Jul-25	Goal Tracker frontend using ASP.NET                                        Understand the file structure  MVC	Converted goal tracker from console to web app using ASP.NET Rajor Pages , set up on post handelers for each operation (Add/Mark/Update/Delete) , fixed binding errors using nullable string property , added edge cases that what if user is inputing blank spaces and empty goal	connect database to the ASP.NET
-		SATURDAY SUNDAY	
-21-Jul-25	Integrate ASP.NET , MVC , REACT  AND SQL 	Created goal_tracker table in sql server define table schema using ID, GoalText, IsCompleted  . understood MVC architecture , Learned how to integrate ASP.NET Core web API backend with react frontend and SQL Server 	learn identity - authentication  , dapper 
-22-Jul-25	Authentication-JWT,Identity,Oauth ,ORM - Dapper,Entity	Connected SQL server built the asp.net core Mvc API (Get,post,put,del) . Integrated swagger for testing API  [Encryption / hashing]	revise react 
-23-Jul-25	react  revision	life cycle , dom vs virtual dom ,  props  and states , hooks 	user defined tables stored procedure 
-24-Jul-25	user defined tables in stored procedures                                   Waypoint setup in vs code          	created customer and shipping tables , inserted sample data ,  created stored procedure both simple and udtt-based , joins also done with waypoint setup successfully 	Redux    
-25-Jul-25	REDUX , Adding css using waypoint 	understood redux architecture- store, actions,reducers ,middleware and dataflow pattern	Implement Authentication using ASP.NET Core Identity in GoalTracker
-		SATURDAY SUNDAY	
-28-Jul-25	Add login/ signup to Goal Tracker                           Complete CLFY-25 Courses	ALL assigned Courses completed and trying to  connect  identity authentication 	
-29-Jul-25	Review authentication methods: Cookies, JWT, OAuth, OpenID, SAML.	learned about authentication types and their usecases . Also understand migration and dependency injection in dotNet 	done with logic building will implement it Tomorrow 
-30-Jul-25	Add dreamify_users table and usersId in Goal _Tracker table to implemet login and signup , and using joins to filter goals per user 	integrated register and login api endpoints with password hashing , tested via swagger and verified data is begin stored correctly in the database , now have to make frontend for this	attend Seminar on Product Development: Agile  , present my assigned authentication task to sir
-31-Jul-25	Seminar , meeting , implement paging 	Attended seminar session , had a metting to present updates on my assigned task ,worked on implementing  paging  funtionality for goal data retrieval , wrote a sql function to insert 1000 goals records 	Add css and waypoint components  
-1-Aug-25	waypoint 	Added css and waypoint components 	work on report builder 
-		SATURDAY SUNDAY	
-4-Aug-25	SQl  Api	created report tables added services   and controllers 	integrate  frontend 
+
 Dynamic Report Builder
 I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
 Key Components
