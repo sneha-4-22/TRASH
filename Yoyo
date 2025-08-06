@@ -1,3 +1,236 @@
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:5118/api';
+
+// Configure axios defaults
+axios.defaults.timeout = 30000; // 30 seconds timeout
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add request interceptor for logging
+api.interceptors.request.use(
+  (config) => {
+    console.log('API Request:', {
+      method: config.method,
+      url: config.url,
+      data: config.data,
+      params: config.params
+    });
+    return config;
+  },
+  (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for logging and error handling
+api.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', {
+      url: response.config.url,
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    console.error('Response Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.message,
+      data: error.response?.data
+    });
+    return Promise.reject(error);
+  }
+);
+
+export const reportService = {
+  // Get all available reports
+  async getAvailableReports() {
+    try {
+      const response = await api.get('/reports');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to fetch reports',
+        data: []
+      };
+    }
+  },
+
+  // Get report definition by ID
+  async getReportDefinition(reportId) {
+    try {
+      const response = await api.get(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching report definition:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to fetch report definition',
+        data: null
+      };
+    }
+  },
+
+  // Generate report with parameters
+  async generateReport(reportId, parameters = {}) {
+    try {
+      console.log('Generating report:', { reportId, parameters });
+      
+      // Ensure parameters is an object and not null/undefined
+      const cleanedParameters = parameters || {};
+      
+      // Remove any null or undefined values
+      const filteredParameters = Object.entries(cleanedParameters).reduce((acc, [key, value]) => {
+        if (value !== null && value !== undefined && value !== '') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+
+      const requestBody = {
+        parameters: filteredParameters
+      };
+
+      console.log('Request body:', requestBody);
+
+      const response = await api.post(`/reports/${reportId}/generate`, requestBody);
+      return response.data;
+    } catch (error) {
+      console.error('Error generating report:', error);
+      
+      // Return a more user-friendly error response
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.errors?.join(', ') || 
+                          error.message || 
+                          'An unexpected error occurred';
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Create a new report
+  async createReport(reportData) {
+    try {
+      console.log('Creating report with data:', reportData);
+      
+      // Validate required fields
+      if (!reportData.reportName || !reportData.reportName.trim()) {
+        return {
+          success: false,
+          message: 'Report name is required'
+        };
+      }
+      
+      if (!reportData.dataSourceType || !reportData.dataSourceType.trim()) {
+        return {
+          success: false,
+          message: 'Data source type is required'
+        };
+      }
+      
+      if (!reportData.dataSourceValue || !reportData.dataSourceValue.trim()) {
+        return {
+          success: false,
+          message: 'Data source value is required'
+        };
+      }
+
+      const response = await api.post('/reports', reportData);
+      
+      // Check if response has the expected structure
+      if (response.data) {
+        return response.data; // This should contain { success: true, data: reportId }
+      }
+      
+      return {
+        success: true,
+        message: 'Report created successfully',
+        data: response.data
+      };
+      
+    } catch (error) {
+      console.error('Error creating report:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create report';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors?.length > 0) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Update an existing report
+  async updateReport(reportId, reportData) {
+    try {
+      const response = await api.put(`/reports/${reportId}`, reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating report:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to update report',
+        data: null
+      };
+    }
+  },
+
+  // Delete a report
+  async deleteReport(reportId) {
+    try {
+      const response = await api.delete(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to delete report',
+        data: null
+      };
+    }
+  },
+
+  // Export report data
+  async exportReport(reportId, parameters = {}, format = 'csv') {
+    try {
+      const response = await api.post(`/reports/${reportId}/export`, {
+        parameters,
+        format
+      }, {
+        responseType: 'blob'
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      throw error;
+    }
+  }
+};
 import React, { useState } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportForm.css';
