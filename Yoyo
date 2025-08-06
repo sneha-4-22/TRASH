@@ -1,3 +1,266 @@
+import React, { useState } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportForm.css';
+
+const ReportForm = ({ onBack, onSave }) => {
+  const [formData, setFormData] = useState({
+    reportName: '',
+    description: '',
+    category: '',
+    dataSourceType: 'SQL',
+    dataSourceValue: '',
+    accessRoles: '',
+    isActive: true
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    console.log('Form submitted with data:', formData);
+    
+    // Validate required fields
+    if (!formData.reportName.trim()) {
+      setError('Report Name is required');
+      return;
+    }
+    if (!formData.dataSourceValue.trim()) {
+      setError('Data Source Value is required');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Format access roles exactly like App.js
+      let accessRolesFormatted = '["Admin"]'; // Default fallback
+      if (formData.accessRoles && formData.accessRoles.trim()) {
+        const rolesArray = formData.accessRoles
+          .split(',')
+          .map(role => role.trim())
+          .filter(role => role.length > 0);
+        if (rolesArray.length > 0) {
+          accessRolesFormatted = `["${rolesArray.join('","')}"]`;
+        }
+      }
+      
+      // Match the EXACT structure that works in App.js
+      const reportData = {
+        reportName: formData.reportName.trim(),
+        description: formData.description?.trim() || null,  // null instead of ''
+        category: formData.category?.trim() || null,        // null instead of ''
+        dataSourceType: formData.dataSourceType,
+        dataSourceValue: formData.dataSourceValue.trim(),
+        parameters: "",       // ← ADD THIS (required field)
+        layoutSettings: "",   // ← ADD THIS (required field)
+        accessRoles: accessRolesFormatted,
+        isActive: formData.isActive
+      };
+      
+      console.log('Final report data being sent:', reportData);
+      console.log('AccessRoles formatted as:', accessRolesFormatted);
+      
+      const response = await reportService.createReport(reportData);
+      console.log('Response received:', response);
+      
+      if (response && response.success) {
+        console.log('Report created successfully!');
+        setSuccess(true);
+        setTimeout(() => {
+          if (onSave) onSave();
+        }, 2000);
+      } else {
+        console.error('Report creation failed:', response);
+        setError(response?.message || 'Failed to create report');
+      }
+    } catch (err) {
+      console.error('Exception in handleSubmit:', err);
+      console.error('Error response:', err.response);
+      
+      // Better error handling
+      let errorMessage = 'Failed to create report';
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.data?.errors) {
+        errorMessage = Array.isArray(err.response.data.errors) 
+          ? err.response.data.errors.join(', ') 
+          : err.response.data.errors;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="success-message">
+        <h2>✅ Report Created Successfully!</h2>
+        <p>Redirecting back to reports list...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-form">
+      <div className="form-header">
+        <button 
+          className="btn btn-secondary" 
+          onClick={onBack}
+          type="button"
+        >
+          ← Back to Reports
+        </button>
+        <h2>Create New Report</h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="form">
+        <div className="form-group">
+          <label htmlFor="reportName">Report Name *</label>
+          <input
+            type="text"
+            id="reportName"
+            name="reportName"
+            value={formData.reportName}
+            onChange={handleInputChange}
+            required
+            className="form-input"
+            maxLength="100"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
+            rows="3"
+            className="form-textarea"
+            maxLength="500"
+          />
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="category">Category</label>
+            <input
+              type="text"
+              id="category"
+              name="category"
+              value={formData.category}
+              onChange={handleInputChange}
+              className="form-input"
+              maxLength="50"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="dataSourceType">Data Source Type *</label>
+            <select
+              id="dataSourceType"
+              name="dataSourceType"
+              value={formData.dataSourceType}
+              onChange={handleInputChange}
+              required
+              className="form-select"
+            >
+              <option value="SQL">SQL Query</option>
+              <option value="StoredProcedure">Stored Procedure</option>
+              <option value="API">API Endpoint</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="dataSourceValue">
+            {formData.dataSourceType === 'StoredProcedure' ? 'Procedure Name' : 
+             formData.dataSourceType === 'API' ? 'API Endpoint' : 'SQL Query'} *
+          </label>
+          <textarea
+            id="dataSourceValue"
+            name="dataSourceValue"
+            value={formData.dataSourceValue}
+            onChange={handleInputChange}
+            required
+            rows="4"
+            className="form-textarea"
+            placeholder={
+              formData.dataSourceType === 'StoredProcedure' ? 'GetEmployeeReport' :
+              formData.dataSourceType === 'API' ? 'https://api.example.com/data' :
+              'SELECT * FROM TableName WHERE Column = @Parameter'
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="accessRoles">Access Roles (comma separated)</label>
+          <input
+            type="text"
+            id="accessRoles"
+            name="accessRoles"
+            value={formData.accessRoles}
+            onChange={handleInputChange}
+            className="form-input"
+            placeholder="Admin, HR, Sales"
+          />
+          <small className="form-help">Enter roles separated by commas (e.g., Admin, HR, Sales)</small>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleInputChange}
+            />
+            Active
+          </label>
+        </div>
+
+        {error && (
+          <div className="error-message">
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            onClick={onBack}
+          >
+            Cancel
+          </button>
+          <button 
+            type="submit" 
+            className="btn btn-primary" 
+            disabled={loading}
+          >
+            {loading ? 'Creating...' : 'Create Report'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ReportForm;
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:5118/api';
