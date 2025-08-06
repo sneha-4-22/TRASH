@@ -1,3 +1,293 @@
+// Using fetch instead of axios to match your working App.js
+const API_BASE_URL = 'http://localhost:5118/api';
+
+export const reportService = {
+  // Get all available reports
+  async getAvailableReports() {
+    try {
+      console.log('Fetching reports from:', `${API_BASE_URL}/reports`);
+      
+      const response = await fetch(`${API_BASE_URL}/reports`);
+      console.log('Response status:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('Raw response text:', responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      console.log('Parsed response data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to fetch reports',
+        data: []
+      };
+    }
+  },
+
+  // Get report definition by ID
+  async getReportDefinition(reportId) {
+    try {
+      console.log('Fetching report definition for ID:', reportId);
+      
+      const response = await fetch(`${API_BASE_URL}/reports/${reportId}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('Report definition raw response:', responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      console.log('Report definition data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching report definition:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to fetch report definition',
+        data: null
+      };
+    }
+  },
+
+  // Generate report with parameters
+  async generateReport(reportId, parameters = {}) {
+    try {
+      console.log('Generating report:', { reportId, parameters });
+      
+      // Ensure parameters is an object and not null/undefined
+      const cleanedParameters = parameters || {};
+      
+      // Remove any null or undefined values
+      const filteredParameters = Object.entries(cleanedParameters).reduce((acc, [key, value]) => {
+        if (value !== null && value !== undefined && value !== '') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+
+      const requestBody = {
+        parameters: filteredParameters
+      };
+
+      console.log('Request body:', requestBody);
+
+      const response = await fetch(`${API_BASE_URL}/reports/${reportId}/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error generating report:', error);
+      
+      // Return a more user-friendly error response
+      return {
+        success: false,
+        message: error.message || 'An unexpected error occurred',
+        data: null
+      };
+    }
+  },
+
+  // Create a new report - FIXED to match your working App.js
+  async createReport(reportData) {
+    try {
+      console.log('Creating report with data:', reportData);
+      
+      // Validate required fields
+      if (!reportData.reportName || !reportData.reportName.trim()) {
+        return {
+          success: false,
+          message: 'Report name is required'
+        };
+      }
+      
+      if (!reportData.dataSourceType || !reportData.dataSourceType.trim()) {
+        return {
+          success: false,
+          message: 'Data source type is required'
+        };
+      }
+      
+      if (!reportData.dataSourceValue || !reportData.dataSourceValue.trim()) {
+        return {
+          success: false,
+          message: 'Data source value is required'
+        };
+      }
+
+      // Use fetch instead of axios to match your working App.js
+      const response = await fetch(`${API_BASE_URL}/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(reportData)
+      });
+      
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      if (response.ok && data.success) {
+        return data; // Return the success response
+      } else {
+        console.error('Server error:', data);
+        return {
+          success: false,
+          message: data.message || `Server returned error: ${response.status}`,
+          data: null
+        };
+      }
+      
+    } catch (error) {
+      console.error('Error creating report:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create report';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Update an existing report
+  async updateReport(reportId, reportData) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/reports/${reportId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(reportData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error updating report:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to update report',
+        data: null
+      };
+    }
+  },
+
+  // Delete a report
+  async deleteReport(reportId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/reports/${reportId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to delete report',
+        data: null
+      };
+    }
+  },
+
+  // Export report data
+  async exportReport(reportId, parameters = {}, format = 'csv') {
+    try {
+      const response = await fetch(`${API_BASE_URL}/reports/${reportId}/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters,
+          format
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return response.blob();
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      throw error;
+    }
+  }
+};
 import React, { useState } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportForm.css';
