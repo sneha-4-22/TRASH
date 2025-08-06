@@ -1,790 +1,1564 @@
-Dynamic Report Builder
-I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
-Key Components
-1.	Database Structure
-o	ReportDefinitions table (core metadata)
-o	ReportParameters table (parameter configuration)
-2.	Backend Services
-o	ReportService (data retrieval and processing)
-o	ReportAdminService (management interface)
-3.	Multiple Data Sources
-o	Stored Procedures
-o	SQL Queries
-o	API Endpoints
-4.	Frontend Features
-o	Report dashboard with category filtering
-o	Parameter form generation
-o	Dynamic data display
-o	Export options (Excel, PDF, CSV)
-5.	Security
-o	Role-based visibility
-o	Parameter validation
-Implementation Benefits
-•	No-code report creation - Business users can create reports without developer involvement
-•	Flexible parameters - Support for text, number, date, and dropdown parameters
-•	Automatic UI generation - Forms and tables built dynamically based on metadata
-•	Export functionality - Built-in support for common export formats
-This system makes reporting truly configurable through database entries, allowing business users to create and share reports while maintaining security and performance.
+import React, { useState } from 'react';
+import { reportService } from '../services/reportService';
+import '../styles/ReportForm.css';
 
+const ReportForm = ({ onBack, onSave }) => {
+  const [formData, setFormData] = useState({
+    reportName: '',
+    description: '',
+    category: '',
+    dataSourceType: 'SQL',
+    dataSourceValue: '',
+    accessRoles: '',
+    isActive: true
+  });
+  const [detectedParameters, setDetectedParameters] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
 
-Custom report functionality tool using C# ideas based on i just make a entry in the database for the source of data and report should be visible on the ui 
-
-GitHub Copilot: Based on your request for a custom report functionality tool in C#, I'll outline a solution that allows you to create reports by simply adding database entries that will then be visible on the UI.
-
-# Custom Report Generation Framework
-
-Here's a comprehensive approach to building a flexible report generation system where adding a database entry makes the report available in the UI:
-
-## 1. Database Structure
-
-```sql
--- Reports definition table
-CREATE TABLE ReportDefinitions (
-    ReportId INT PRIMARY KEY IDENTITY(1,1),
-    ReportName NVARCHAR(100) NOT NULL,
-    Description NVARCHAR(500),
-    Category NVARCHAR(50),
-    DataSourceType NVARCHAR(50) NOT NULL, -- 'StoredProcedure', 'SQL', 'API', etc.
-    DataSourceValue NVARCHAR(MAX) NOT NULL, -- SP name, SQL query, API endpoint
-    Parameters NVARCHAR(MAX), -- JSON array of parameter definitions
-    LayoutSettings NVARCHAR(MAX), -- JSON containing column definitions, formatting rules
-    AccessRoles NVARCHAR(MAX), -- JSON array of role IDs that can access this report
-    IsActive BIT DEFAULT 1,
-    CreatedDate DATETIME DEFAULT GETDATE(),
-    ModifiedDate DATETIME DEFAULT GETDATE()
-)
-
--- Report parameters table (for predefined parameter values)
-CREATE TABLE ReportParameters (
-    ParameterId INT PRIMARY KEY IDENTITY(1,1),
-    ReportId INT FOREIGN KEY REFERENCES ReportDefinitions(ReportId),
-    ParameterName NVARCHAR(50) NOT NULL,
-    DisplayName NVARCHAR(100) NOT NULL,
-    ParameterType NVARCHAR(50) NOT NULL, -- 'Text', 'Number', 'Date', 'Dropdown', etc.
-    DefaultValue NVARCHAR(MAX),
-    IsRequired BIT DEFAULT 0,
-    ValidationRule NVARCHAR(500), -- Regex or validation expression
-    DropdownOptions NVARCHAR(MAX) -- JSON array for dropdown options
-)
-```
-
-## 2. Backend Components
-
-### Report Service
-
-```csharp
-public class ReportDefinition
-{
-    public int ReportId { get; set; }
-    public string ReportName { get; set; }
-    public string Description { get; set; }
-    public string Category { get; set; }
-    public string DataSourceType { get; set; }
-    public string DataSourceValue { get; set; }
-    public List<ReportParameter> Parameters { get; set; }
-    public JObject LayoutSettings { get; set; }
-    public List<string> AccessRoles { get; set; }
-    public bool IsActive { get; set; }
-    public DateTime CreatedDate { get; set; }
-    public DateTime ModifiedDate { get; set; }
-}
-
-public class ReportParameter
-{
-    public int ParameterId { get; set; }
-    public string ParameterName { get; set; }
-    public string DisplayName { get; set; }
-    public string ParameterType { get; set; }
-    public string DefaultValue { get; set; }
-    public bool IsRequired { get; set; }
-    public string ValidationRule { get; set; }
-    public List<DropdownOption> DropdownOptions { get; set; }
-}
-
-public class DropdownOption
-{
-    public string Value { get; set; }
-    public string Display { get; set; }
-}
-
-public class ReportData
-{
-    public ReportDefinition Metadata { get; set; }
-    public DataTable Data { get; set; }
-    public string Error { get; set; }
-}
-```
-
-### Report Service Implementation
-
-```csharp
-public interface IReportService
-{
-    List<ReportDefinition> GetAvailableReports(string userId, IEnumerable<string> userRoles);
-    ReportDefinition GetReportDefinition(int reportId);
-    ReportData GenerateReport(int reportId, Dictionary<string, string> parameters);
-}
-
-public class ReportService : IReportService
-{
-    private readonly IDbConnection _dbConnection;
-    private readonly ILogger<ReportService> _logger;
-
-    public ReportService(IDbConnection dbConnection, ILogger<ReportService> logger)
-    {
-        _dbConnection = dbConnection;
-        _logger = logger;
+  // Function to detect SQL parameters
+  const detectSqlParameters = (sqlQuery) => {
+    if (!sqlQuery) return [];
+    
+    // Regex to find @ParameterName patterns
+    const parameterRegex = /@(\w+)/g;
+    const matches = [];
+    let match;
+    
+    while ((match = parameterRegex.exec(sqlQuery)) !== null) {
+      const paramName = match[1];
+      if (!matches.some(p => p.parameterName === paramName)) {
+        matches.push({
+          parameterName: paramName,
+          displayName: paramName.charAt(0).toUpperCase() + paramName.slice(1).replace(/([A-Z])/g, ' $1'),
+          parameterType: 'Text', // Default type
+          defaultValue: '',
+          isRequired: true,
+          validationRule: '',
+          dropdownOptions: ''
+        });
+      }
     }
+    
+    return matches;
+  };
 
-    public List<ReportDefinition> GetAvailableReports(string userId, IEnumerable<string> userRoles)
-    {
-        try
-        {
-            var reports = _dbConnection.Query<ReportDefinition>(
-                "SELECT * FROM ReportDefinitions WHERE IsActive = 1").ToList();
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    const newValue = type === 'checkbox' ? checked : value;
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: newValue
+    }));
+
+    // Auto-detect parameters when SQL query changes
+    if (name === 'dataSourceValue' && formData.dataSourceType === 'SQL') {
+      const parameters = detectSqlParameters(value);
+      setDetectedParameters(parameters);
+    }
+  };
+
+  // Handle parameter field changes
+  const handleParameterChange = (index, field, value) => {
+    setDetectedParameters(prev => 
+      prev.map((param, i) => 
+        i === index ? { ...param, [field]: value } : param
+      )
+    );
+  };
+
+  // Add manual parameter
+  const addParameter = () => {
+    setDetectedParameters(prev => [...prev, {
+      parameterName: '',
+      displayName: '',
+      parameterType: 'Text',
+      defaultValue: '',
+      isRequired: true,
+      validationRule: '',
+      dropdownOptions: ''
+    }]);
+  };
+
+  // Remove parameter
+  const removeParameter = (index) => {
+    setDetectedParameters(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    console.log('Form submitted with data:', formData);
+    console.log('Detected parameters:', detectedParameters);
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Validate parameters
+      for (let i = 0; i < detectedParameters.length; i++) {
+        const param = detectedParameters[i];
+        if (!param.parameterName.trim()) {
+          setError(`Parameter ${i + 1}: Parameter name is required`);
+          return;
+        }
+        if (!param.displayName.trim()) {
+          setError(`Parameter ${i + 1}: Display name is required`);
+          return;
+        }
+      }
+      
+      // Format access roles
+      let accessRolesFormatted = '[]';
+      if (formData.accessRoles && formData.accessRoles.trim()) {
+        const rolesArray = formData.accessRoles
+          .split(',')
+          .map(role => role.trim())
+          .filter(role => role.length > 0);
+        accessRolesFormatted = `["${rolesArray.join('","')}"]`;
+      }
+      
+      const reportData = {
+        reportName: formData.reportName.trim(),
+        description: formData.description?.trim() || null,
+        category: formData.category?.trim() || null,
+        dataSourceType: formData.dataSourceType,
+        dataSourceValue: formData.dataSourceValue.trim(),
+        parameters: "", 
+        layoutSettings: "", 
+        accessRoles: accessRolesFormatted,
+        isActive: formData.isActive,
+        reportParameters: detectedParameters.map(param => ({
+          parameterName: param.parameterName.trim(),
+          displayName: param.displayName.trim(),
+          parameterType: param.parameterType,
+          defaultValue: param.defaultValue?.trim() || null,
+          isRequired: param.isRequired,
+          validationRule: param.validationRule?.trim() || null,
+          dropdownOptions: param.dropdownOptions?.trim() || null
+        }))
+      };
+      
+      console.log('Final report data being sent:', reportData);
+      
+      const response = await reportService.createReportWithParameters(reportData);
+      console.log('Response received:', response);
+      
+      if (response && response.success) {
+        console.log('Report created successfully!');
+        setSuccess(true);
+        setTimeout(() => {
+          onSave();
+        }, 2000);
+      } else {
+        console.error('Report creation failed:', response);
+        setError(response?.message || 'Failed to create report');
+      }
+    } catch (err) {
+      console.error('Exception in handleSubmit:', err);
+      console.error('Error response:', err.response);
+      setError(err.response?.data?.message || err.message || 'Failed to create report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderParameterFields = () => {
+    if (detectedParameters.length === 0) return null;
+
+    return (
+      <div className="parameters-section">
+        <div className="parameters-header">
+          <h3>Detected Parameters</h3>
+          <button type="button" className="btn btn-outline" onClick={addParameter}>
+            + Add Parameter
+          </button>
+        </div>
+        
+        {detectedParameters.map((param, index) => (
+          <div key={index} className="parameter-group">
+            <div className="parameter-header">
+              <h4>Parameter {index + 1}</h4>
+              <button 
+                type="button" 
+                className="btn btn-danger-small"
+                onClick={() => removeParameter(index)}
+              >
+                Remove
+              </button>
+            </div>
             
-            // Filter reports by user roles
-            return reports.Where(r => {
-                var accessRoles = JsonConvert.DeserializeObject<List<string>>(r.AccessRoles);
-                return !accessRoles.Any() || accessRoles.Any(role => userRoles.Contains(role));
-            }).ToList();
+            <div className="form-row">
+              <div className="form-group">
+                <label>Parameter Name *</label>
+                <input
+                  type="text"
+                  value={param.parameterName}
+                  onChange={(e) => handleParameterChange(index, 'parameterName', e.target.value)}
+                  className="form-input"
+                  placeholder="e.g., PlanAlertID"
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Display Name *</label>
+                <input
+                  type="text"
+                  value={param.displayName}
+                  onChange={(e) => handleParameterChange(index, 'displayName', e.target.value)}
+                  className="form-input"
+                  placeholder="e.g., Plan Alert ID"
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>Parameter Type *</label>
+                <select
+                  value={param.parameterType}
+                  onChange={(e) => handleParameterChange(index, 'parameterType', e.target.value)}
+                  className="form-select"
+                  required
+                >
+                  <option value="Text">Text</option>
+                  <option value="Number">Number</option>
+                  <option value="Date">Date</option>
+                  <option value="Dropdown">Dropdown</option>
+                </select>
+              </div>
+              
+              <div className="form-group">
+                <label>Default Value</label>
+                <input
+                  type="text"
+                  value={param.defaultValue}
+                  onChange={(e) => handleParameterChange(index, 'defaultValue', e.target.value)}
+                  className="form-input"
+                  placeholder="Optional default value"
+                />
+              </div>
+            </div>
+            
+            {param.parameterType === 'Dropdown' && (
+              <div className="form-group">
+                <label>Dropdown Options (JSON format)</label>
+                <textarea
+                  value={param.dropdownOptions}
+                  onChange={(e) => handleParameterChange(index, 'dropdownOptions', e.target.value)}
+                  className="form-textarea"
+                  placeholder='[{"Value":"1","Display":"Option 1"},{"Value":"2","Display":"Option 2"}]'
+                  rows="3"
+                />
+                <small className="form-help">
+                  Format: [{"Value":"1","Display":"Option 1"}]
+                </small>
+              </div>
+            )}
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={param.isRequired}
+                    onChange={(e) => handleParameterChange(index, 'isRequired', e.target.checked)}
+                  />
+                  Required Parameter
+                </label>
+              </div>
+              
+              <div className="form-group">
+                <label>Validation Rule</label>
+                <input
+                  type="text"
+                  value={param.validationRule}
+                  onChange={(e) => handleParameterChange(index, 'validationRule', e.target.value)}
+                  className="form-input"
+                  placeholder="e.g., min:1, max:999999"
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  if (success) {
+    return (
+      <div className="success-message">
+        <h2>✅ Report Created Successfully!</h2>
+        <p>Report created with {detectedParameters.length} parameter(s)</p>
+        <p>Redirecting back to reports list...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-form">
+      <div className="form-header">
+        <button className="btn btn-secondary" onClick={onBack}>
+          ← Back to Reports
+        </button>
+        <h2>Create New Report</h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="form">
+        <div className="form-group">
+          <label htmlFor="reportName">Report Name *</label>
+          <input
+            type="text"
+            id="reportName"
+            name="reportName"
+            value={formData.reportName}
+            onChange={handleInputChange}
+            required
+            className="form-input"
+            maxLength="100"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
+            rows="3"
+            className="form-textarea"
+            maxLength="500"
+          />
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="category">Category</label>
+            <input
+              type="text"
+              id="category"
+              name="category"
+              value={formData.category}
+              onChange={handleInputChange}
+              className="form-input"
+              maxLength="50"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="dataSourceType">Data Source Type *</label>
+            <select
+              id="dataSourceType"
+              name="dataSourceType"
+              value={formData.dataSourceType}
+              onChange={handleInputChange}
+              required
+              className="form-select"
+            >
+              <option value="SQL">SQL Query</option>
+              <option value="StoredProcedure">Stored Procedure</option>
+              <option value="API">API Endpoint</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="dataSourceValue">
+            {formData.dataSourceType === 'StoredProcedure' ? 'Procedure Name' : 
+             formData.dataSourceType === 'API' ? 'API Endpoint' : 'SQL Query'} *
+          </label>
+          <textarea
+            id="dataSourceValue"
+            name="dataSourceValue"
+            value={formData.dataSourceValue}
+            onChange={handleInputChange}
+            required
+            rows="6"
+            className="form-textarea"
+            placeholder={
+              formData.dataSourceType === 'StoredProcedure' ? 'GetEmployeeReport' :
+              formData.dataSourceType === 'API' ? 'https://api.example.com/data' :
+              'SELECT * FROM PlanAlerts WITH(NOLOCK) WHERE PlanAlertID = @PlanAlertID ORDER BY CreatedDate DESC'
+            }
+          />
+          {formData.dataSourceType === 'SQL' && (
+            <small className="form-help">
+              💡 Tip: Use @ParameterName format in your SQL query. Parameters will be auto-detected!
+              <br />
+              Example: WHERE PlanAlertID = @PlanAlertID AND Status = @Status
+            </small>
+          )}
+        </div>
+
+        {renderParameterFields()}
+
+        <div className="form-group">
+          <label htmlFor="accessRoles">Access Roles (comma separated)</label>
+          <input
+            type="text"
+            id="accessRoles"
+            name="accessRoles"
+            value={formData.accessRoles}
+            onChange={handleInputChange}
+            className="form-input"
+            placeholder="Admin, HR, Sales"
+          />
+          <small className="form-help">Enter roles separated by commas (e.g., Admin, HR, Sales)</small>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleInputChange}
+            />
+            Active
+          </label>
+        </div>
+
+        {error && (
+          <div className="error-message">
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
+        <div className="form-actions">
+          <button type="button" className="btn btn-secondary" onClick={onBack}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Creating...' : `Create Report${detectedParameters.length > 0 ? ` (${detectedParameters.length} parameters)` : ''}`}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ReportForm;
+
+
+
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:5118/api';
+
+// Configure axios defaults
+axios.defaults.timeout = 30000; // 30 seconds timeout
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add request interceptor for logging
+api.interceptors.request.use(
+  (config) => {
+    console.log('API Request:', {
+      method: config.method,
+      url: config.url,
+      data: config.data,
+      params: config.params
+    });
+    return config;
+  },
+  (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for logging and error handling
+api.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', {
+      url: response.config.url,
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    console.error('Response Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.message,
+      data: error.response?.data
+    });
+    return Promise.reject(error);
+  }
+);
+
+export const reportService = {
+  // Get all available reports
+  async getAvailableReports() {
+    try {
+      const response = await api.get('/reports');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to fetch reports',
+        data: []
+      };
+    }
+  },
+
+  // Get report definition by ID
+  async getReportDefinition(reportId) {
+    try {
+      const response = await api.get(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching report definition:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to fetch report definition',
+        data: null
+      };
+    }
+  },
+
+  // Generate report with parameters
+  async generateReport(reportId, parameters = {}) {
+    try {
+      console.log('Generating report:', { reportId, parameters });
+      
+      // Ensure parameters is an object and not null/undefined
+      const cleanedParameters = parameters || {};
+      
+      // Remove any null or undefined values
+      const filteredParameters = Object.entries(cleanedParameters).reduce((acc, [key, value]) => {
+        if (value !== null && value !== undefined && value !== '') {
+          acc[key] = value;
         }
-        catch (Exception ex)
+        return acc;
+      }, {});
+
+      const requestBody = {
+        parameters: filteredParameters
+      };
+
+      console.log('Request body:', requestBody);
+
+      const response = await api.post(`/reports/${reportId}/generate`, requestBody);
+      return response.data;
+    } catch (error) {
+      console.error('Error generating report:', error);
+      
+      // Return a more user-friendly error response
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.errors?.join(', ') || 
+                          error.message || 
+                          'An unexpected error occurred';
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Create a new report (legacy method - keeping for compatibility)
+  async createReport(reportData) {
+    try {
+      console.log('Creating report with data:', reportData);
+      
+      // Validate required fields
+      if (!reportData.reportName || !reportData.reportName.trim()) {
+        return {
+          success: false,
+          message: 'Report name is required'
+        };
+      }
+      
+      if (!reportData.dataSourceType || !reportData.dataSourceType.trim()) {
+        return {
+          success: false,
+          message: 'Data source type is required'
+        };
+      }
+      
+      if (!reportData.dataSourceValue || !reportData.dataSourceValue.trim()) {
+        return {
+          success: false,
+          message: 'Data source value is required'
+        };
+      }
+
+      const response = await api.post('/reports', reportData);
+      
+      // Check if response has the expected structure
+      if (response.data) {
+        return response.data; // This should contain { success: true, data: reportId }
+      }
+      
+      return {
+        success: true,
+        message: 'Report created successfully',
+        data: response.data
+      };
+      
+    } catch (error) {
+      console.error('Error creating report:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create report';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors?.length > 0) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Create a new report with parameters
+  async createReportWithParameters(reportData) {
+    try {
+      console.log('Creating report with parameters:', reportData);
+      
+      // Validate required fields
+      if (!reportData.reportName || !reportData.reportName.trim()) {
+        return {
+          success: false,
+          message: 'Report name is required'
+        };
+      }
+      
+      if (!reportData.dataSourceType || !reportData.dataSourceType.trim()) {
+        return {
+          success: false,
+          message: 'Data source type is required'
+        };
+      }
+      
+      if (!reportData.dataSourceValue || !reportData.dataSourceValue.trim()) {
+        return {
+          success: false,
+          message: 'Data source value is required'
+        };
+      }
+
+      // Validate parameters if they exist
+      if (reportData.reportParameters && reportData.reportParameters.length > 0) {
+        for (let i = 0; i < reportData.reportParameters.length; i++) {
+          const param = reportData.reportParameters[i];
+          if (!param.parameterName || !param.parameterName.trim()) {
+            return {
+              success: false,
+              message: `Parameter ${i + 1}: Parameter name is required`
+            };
+          }
+          if (!param.displayName || !param.displayName.trim()) {
+            return {
+              success: false,
+              message: `Parameter ${i + 1}: Display name is required`
+            };
+          }
+          
+          // Validate dropdown options format if type is dropdown
+          if (param.parameterType === 'Dropdown' && param.dropdownOptions) {
+            try {
+              const options = JSON.parse(param.dropdownOptions);
+              if (!Array.isArray(options)) {
+                return {
+                  success: false,
+                  message: `Parameter ${i + 1}: Dropdown options must be an array`
+                };
+              }
+              for (const option of options) {
+                if (!option.Value || !option.Display) {
+                  return {
+                    success: false,
+                    message: `Parameter ${i + 1}: Each dropdown option must have 'Value' and 'Display' properties`
+                  };
+                }
+              }
+            } catch (e) {
+              return {
+                success: false,
+                message: `Parameter ${i + 1}: Invalid JSON format for dropdown options`
+              };
+            }
+          }
+        }
+      }
+
+      const response = await api.post('/reports/with-parameters', reportData);
+      
+      // Check if response has the expected structure
+      if (response.data) {
+        return response.data; // This should contain { success: true, data: reportId }
+      }
+      
+      return {
+        success: true,
+        message: 'Report created successfully with parameters',
+        data: response.data
+      };
+      
+    } catch (error) {
+      console.error('Error creating report with parameters:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create report';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors?.length > 0) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null
+      };
+    }
+  },
+
+  // Update an existing report
+  async updateReport(reportId, reportData) {
+    try {
+      const response = await api.put(`/reports/${reportId}`, reportData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating report:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to update report',
+        data: null
+      };
+    }
+  },
+
+  // Delete a report
+  async deleteReport(reportId) {
+    try {
+      const response = await api.delete(`/reports/${reportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to delete report',
+        data: null
+      };
+    }
+  },
+
+  // Export report data
+  async exportReport(reportId, parameters = {}, format = 'csv') {
+    try {
+      const response = await api.post(`/reports/${reportId}/export`, {
+        parameters,
+        format
+      }, {
+        responseType: 'blob'
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      throw error;
+    }
+  },
+
+  // Validate SQL query parameters (client-side helper)
+  detectSqlParameters(sqlQuery) {
+    if (!sqlQuery) return [];
+    
+    const parameterRegex = /@(\w+)/g;
+    const matches = [];
+    let match;
+    
+    while ((match = parameterRegex.exec(sqlQuery)) !== null) {
+      const paramName = match[1];
+      if (!matches.includes(paramName)) {
+        matches.push(paramName);
+      }
+    }
+    
+    return matches;
+  }
+};
+
+
+
+
+using Custom_report.Models;
+using Custom_report.Services;
+using Microsoft.AspNetCore.Mvc;
+using System.Data;
+using System.ComponentModel.DataAnnotations;
+
+namespace Custom_report.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class ReportsController : ControllerBase
+    {
+        private readonly IReportService _reportService;
+        private readonly ILogger<ReportsController> _logger;
+        
+        public ReportsController(IReportService reportService, ILogger<ReportsController> logger)
         {
-            _logger.LogError(ex, "Error retrieving available reports");
-            throw;
+            _reportService = reportService;
+            _logger = logger;
+        }
+        
+        /// <summary>
+        /// Get all available reports for the current user
+        /// </summary>
+        [HttpGet]
+        public async Task<ActionResult<ApiResponse<List<ReportDefinition>>>> GetAvailableReports()
+        {
+            try
+            {
+                // For now, we'll use default roles. In real app, get from JWT token or session
+                var userRoles = new[] { "Admin", "HR", "Sales" };
+                
+                var reports = await _reportService.GetAvailableReportsAsync(userRoles);
+                return Ok(ApiResponse<List<ReportDefinition>>.SuccessResult(reports));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving available reports");
+                return StatusCode(500, ApiResponse<List<ReportDefinition>>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Get report definition by ID
+        /// </summary>
+        [HttpGet("{id}")]
+        public async Task<ActionResult<ApiResponse<ReportDefinition>>> GetReportDefinition(int id)
+        {
+            try
+            {
+                var report = await _reportService.GetReportDefinitionAsync(id);
+                if (report == null)
+                    return NotFound(ApiResponse<ReportDefinition>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<ReportDefinition>.SuccessResult(report));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving report definition for ID: {ReportId}", id);
+                return StatusCode(500, ApiResponse<ReportDefinition>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        
+        [HttpPost("{id}/generate")]
+        public async Task<ActionResult<ApiResponse<object>>> GenerateReport(int id, [FromBody] ReportGenerationRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Generating report {ReportId} with parameters: {@Parameters}", id, request?.Parameters);
+
+                // Handle null request
+                var parameters = request?.Parameters ?? new Dictionary<string, object>();
+                
+                var reportData = await _reportService.GenerateReportAsync(id, parameters);
+                
+                if (reportData.HasError)
+                {
+                    _logger.LogWarning("Report generation failed for ID {ReportId}: {Error}", id, reportData.Error);
+                    return BadRequest(ApiResponse<object>.ErrorResult(reportData.Error));
+                }
+                
+                // Convert DataTable to a more JSON-friendly format
+                var result = new
+                {
+                    Metadata = reportData.Metadata,
+                    Columns = reportData.Data.Columns.Cast<DataColumn>().Select(c => new { 
+                        Name = c.ColumnName, 
+                        Type = c.DataType.Name 
+                    }),
+                    Rows = reportData.Data.AsEnumerable().Select(row => 
+                        reportData.Data.Columns.Cast<DataColumn>().ToDictionary(
+                            col => col.ColumnName, 
+                            col => row[col] == DBNull.Value ? null : row[col]
+                        )
+                    )
+                };
+                
+                _logger.LogInformation("Successfully generated report {ReportId} with {RowCount} rows", id, reportData.Data.Rows.Count);
+                return Ok(ApiResponse<object>.SuccessResult(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating report for ID: {ReportId}", id);
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Internal server error: {ex.Message}"));
+            }
+        }
+        
+        /// <summary>
+        /// Create a new report (legacy endpoint)
+        /// </summary>
+        [HttpPost]
+        public async Task<ActionResult<ApiResponse<int>>> CreateReport([FromBody] ReportDefinition report)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                    return BadRequest(ApiResponse<int>.ErrorResult("Invalid model", ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()));
+                
+                var reportId = await _reportService.CreateReportAsync(report);
+                return CreatedAtAction(nameof(GetReportDefinition), new { id = reportId }, ApiResponse<int>.SuccessResult(reportId, "Report created successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+                return StatusCode(500, ApiResponse<int>.ErrorResult("Internal server error"));
+            }
+        }
+
+        /// <summary>
+        /// Create a new report with parameters
+        /// </summary>
+        [HttpPost("with-parameters")]
+        public async Task<ActionResult<ApiResponse<int>>> CreateReportWithParameters([FromBody] CreateReportWithParametersRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Creating report with parameters: {ReportName}", request.ReportName);
+
+                if (!ModelState.IsValid)
+                    return BadRequest(ApiResponse<int>.ErrorResult("Invalid model", ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()));
+
+                // Validate the request
+                if (string.IsNullOrWhiteSpace(request.ReportName))
+                    return BadRequest(ApiResponse<int>.ErrorResult("Report name is required"));
+
+                if (string.IsNullOrWhiteSpace(request.DataSourceType))
+                    return BadRequest(ApiResponse<int>.ErrorResult("Data source type is required"));
+
+                if (string.IsNullOrWhiteSpace(request.DataSourceValue))
+                    return BadRequest(ApiResponse<int>.ErrorResult("Data source value is required"));
+
+                // Validate parameters if they exist
+                if (request.ReportParameters != null)
+                {
+                    for (int i = 0; i < request.ReportParameters.Count; i++)
+                    {
+                        var param = request.ReportParameters[i];
+                        if (string.IsNullOrWhiteSpace(param.ParameterName))
+                            return BadRequest(ApiResponse<int>.ErrorResult($"Parameter {i + 1}: Parameter name is required"));
+
+                        if (string.IsNullOrWhiteSpace(param.DisplayName))
+                            return BadRequest(ApiResponse<int>.ErrorResult($"Parameter {i + 1}: Display name is required"));
+
+                        if (string.IsNullOrWhiteSpace(param.ParameterType))
+                            return BadRequest(ApiResponse<int>.ErrorResult($"Parameter {i + 1}: Parameter type is required"));
+                    }
+                }
+
+                var reportId = await _reportService.CreateReportWithParametersAsync(request);
+                
+                _logger.LogInformation("Successfully created report {ReportId} with {ParameterCount} parameters", 
+                    reportId, request.ReportParameters?.Count ?? 0);
+
+                return CreatedAtAction(nameof(GetReportDefinition), new { id = reportId }, 
+                    ApiResponse<int>.SuccessResult(reportId, "Report created successfully with parameters"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating report with parameters: {ReportName}", request.ReportName);
+                return StatusCode(500, ApiResponse<int>.ErrorResult($"Internal server error: {ex.Message}"));
+            }
+        }
+        
+        /// <summary>
+        /// Update an existing report
+        /// </summary>
+        [HttpPut("{id}")]
+        public async Task<ActionResult<ApiResponse<bool>>> UpdateReport(int id, [FromBody] ReportDefinition report)
+        {
+            try
+            {
+                if (id != report.ReportId)
+                    return BadRequest(ApiResponse<bool>.ErrorResult("Report ID mismatch"));
+                
+                if (!ModelState.IsValid)
+                    return BadRequest(ApiResponse<bool>.ErrorResult("Invalid model", ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()));
+                
+                var success = await _reportService.UpdateReportAsync(report);
+                if (!success)
+                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<bool>.SuccessResult(true, "Report updated successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating report: {ReportId}", id);
+                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        /// <summary>
+        /// Delete a report (soft delete)
+        /// </summary>
+        [HttpDelete("{id}")]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteReport(int id)
+        {
+            try
+            {
+                var success = await _reportService.DeleteReportAsync(id);
+                if (!success)
+                    return NotFound(ApiResponse<bool>.ErrorResult("Report not found"));
+                
+                return Ok(ApiResponse<bool>.SuccessResult(true, "Report deleted successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting report: {ReportId}", id);
+                return StatusCode(500, ApiResponse<bool>.ErrorResult("Internal server error"));
+            }
         }
     }
 
-    public ReportDefinition GetReportDefinition(int reportId)
+    public class ReportGenerationRequest
     {
-        try
-        {
-            var report = _dbConnection.QueryFirstOrDefault<ReportDefinition>(
-                "SELECT * FROM ReportDefinitions WHERE ReportId = @ReportId", 
-                new { ReportId = reportId });
+        public Dictionary<string, object> Parameters { get; set; } = new Dictionary<string, object>();
+    }
 
-            if (report == null)
+    public class CreateReportWithParametersRequest
+    {
+        [Required]
+        [StringLength(100)]
+        public string ReportName { get; set; }
+
+        [StringLength(500)]
+        public string Description { get; set; }
+
+        [StringLength(50)]
+        public string Category { get; set; }
+
+        [Required]
+        [StringLength(50)]
+        public string DataSourceType { get; set; }
+
+        [Required]
+        public string DataSourceValue { get; set; }
+
+        public string Parameters { get; set; }
+        public string LayoutSettings { get; set; }
+        public string AccessRoles { get; set; }
+        public bool IsActive { get; set; } = true;
+
+        public List<CreateReportParameterRequest> ReportParameters { get; set; } = new List<CreateReportParameterRequest>();
+    }
+
+    public class CreateReportParameterRequest
+    {
+        [Required]
+        [StringLength(50)]
+        public string ParameterName { get; set; }
+
+        [Required]
+        [StringLength(100)]
+        public string DisplayName { get; set; }
+
+        [Required]
+        [StringLength(50)]
+        public string ParameterType { get; set; }
+
+        public string DefaultValue { get; set; }
+        public bool IsRequired { get; set; }
+
+        [StringLength(500)]
+        public string ValidationRule { get; set; }
+
+        public string DropdownOptions { get; set; }
+    }
+}
+
+
+
+using Custom_report.Models;
+using Custom_report.Controllers;
+using Dapper;
+using System.Data;
+using System.Data.SqlClient;
+using Newtonsoft.Json;
+
+namespace Custom_report.Services
+{
+    public interface IReportService
+    {
+        Task<List<ReportDefinition>> GetAvailableReportsAsync(IEnumerable<string> userRoles);
+        Task<ReportDefinition> GetReportDefinitionAsync(int reportId);
+        Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, object> parameters);
+        Task<int> CreateReportAsync(ReportDefinition report);
+        Task<int> CreateReportWithParametersAsync(CreateReportWithParametersRequest request);
+        Task<bool> UpdateReportAsync(ReportDefinition report);
+        Task<bool> DeleteReportAsync(int reportId);
+    }
+    
+    public sealed class ReportService : IReportService
+    {
+        private static ReportService? _instance;
+        private static readonly object _lockObject = new object();
+        private readonly IDatabaseService _databaseService;
+        private readonly ILogger<ReportService> _logger;
+        
+        private ReportService(IDatabaseService databaseService, ILogger<ReportService> logger)
+        {
+            _databaseService = databaseService;
+            _logger = logger;
+        }
+        
+        public static ReportService GetInstance(IDatabaseService databaseService, ILogger<ReportService> logger)
+        {
+            if (_instance == null)
+            {
+                lock (_lockObject)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new ReportService(databaseService, logger);
+                    }
+                }
+            }
+            return _instance;
+        }
+        
+        public async Task<List<ReportDefinition>> GetAvailableReportsAsync(IEnumerable<string> userRoles)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                var sql = @"
+                    SELECT ReportId, ReportName, Description, Category, DataSourceType, 
+                           DataSourceValue, Parameters, LayoutSettings, AccessRoles, 
+                           IsActive, CreatedDate, ModifiedDate 
+                    FROM SnehaReportDefinitions 
+                    WHERE IsActive = 1";
+                
+                var reports = (await connection.QueryAsync<ReportDefinition>(sql)).ToList();
+                
+                // Filter by user roles
+                var filteredReports = reports.Where(r =>
+                {
+                    if (string.IsNullOrEmpty(r.AccessRoles)) return true;
+                    
+                    try
+                    {
+                        var accessRoles = JsonConvert.DeserializeObject<List<string>>(r.AccessRoles);
+                        return !accessRoles.Any() || accessRoles.Any(role => userRoles.Contains(role));
+                    }
+                    catch
+                    {
+                        return true; // If JSON parsing fails, allow access
+                    }
+                }).ToList();
+                
+                return filteredReports;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving available reports");
+                throw;
+            }
+        }
+        
+        public async Task<ReportDefinition> GetReportDefinitionAsync(int reportId)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var reportSql = @"
+                    SELECT ReportId, ReportName, Description, Category, DataSourceType, 
+                           DataSourceValue, Parameters, LayoutSettings, AccessRoles, 
+                           IsActive, CreatedDate, ModifiedDate 
+                    FROM SnehaReportDefinitions 
+                    WHERE ReportId = @ReportId";
+                
+                var report = await connection.QueryFirstOrDefaultAsync<ReportDefinition>(reportSql, new { ReportId = reportId });
+                
+                if (report == null) return null;
+                
+                // Load parameters
+                var parametersSql = @"
+                    SELECT ParameterId, ReportId, ParameterName, DisplayName, ParameterType, 
+                           DefaultValue, IsRequired, ValidationRule, DropdownOptions 
+                    FROM SnehaReportParameters 
+                    WHERE ReportId = @ReportId
+                    ORDER BY ParameterId";
+                
+                var parameters = (await connection.QueryAsync<ReportParameter>(parametersSql, new { ReportId = reportId })).ToList();
+                report.ReportParameters = parameters;
+                
+                return report;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving report definition for ReportId: {ReportId}", reportId);
+                throw;
+            }
+        }
+
+        public async Task<ReportData> GenerateReportAsync(int reportId, Dictionary<string, object> parameters)
+        {
+            var result = new ReportData();
+            
+            try
+            {
+                var reportDef = await GetReportDefinitionAsync(reportId);
+                if (reportDef == null)
+                {
+                    result.Error = "Report not found";
+                    return result;
+                }
+                
+                result.Metadata = reportDef;
+                
+                // Validate required parameters
+                var validationError = ValidateParameters(reportDef.ReportParameters, parameters);
+                if (!string.IsNullOrEmpty(validationError))
+                {
+                    result.Error = validationError;
+                    return result;
+                }
+                
+                using var connection = _databaseService.GetConnection();
+                
+                switch (reportDef.DataSourceType.ToLower())
+                {
+                    case "storedprocedure":
+                        result.Data = await ExecuteStoredProcedureAsync(connection, reportDef.DataSourceValue, parameters);
+                        break;
+                        
+                    case "sql":
+                        result.Data = await ExecuteSqlQueryAsync(connection, reportDef.DataSourceValue, parameters);
+                        break;
+                        
+                    default:
+                        result.Error = "Unsupported data source type";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating report for ReportId: {ReportId}", reportId);
+                result.Error = $"An error occurred while generating the report: {ex.Message}";
+            }
+            
+            return result;
+        }
+
+        private string ValidateParameters(List<ReportParameter> reportParams, Dictionary<string, object> providedParams)
+        {
+            if (reportParams == null || !reportParams.Any())
                 return null;
 
-            // Load parameters
-            var parameters = _dbConnection.Query<ReportParameter>(
-                "SELECT * FROM ReportParameters WHERE ReportId = @ReportId",
-                new { ReportId = reportId }).ToList();
-
-            report.Parameters = parameters;
+            var requiredParams = reportParams.Where(p => p.IsRequired).ToList();
             
-            // Deserialize JSON fields
-            report.LayoutSettings = JObject.Parse(report.LayoutSettings ?? "{}");
-            report.AccessRoles = JsonConvert.DeserializeObject<List<string>>(report.AccessRoles ?? "[]");
-
-            return report;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving report definition");
-            throw;
-        }
-    }
-
-    public ReportData GenerateReport(int reportId, Dictionary<string, string> parameters)
-    {
-        var result = new ReportData();
-        
-        try
-        {
-            var reportDef = GetReportDefinition(reportId);
-            if (reportDef == null)
+            foreach (var requiredParam in requiredParams)
             {
-                result.Error = "Report not found";
-                return result;
+                if (!providedParams.ContainsKey(requiredParam.ParameterName) || 
+                    providedParams[requiredParam.ParameterName] == null ||
+                    string.IsNullOrWhiteSpace(providedParams[requiredParam.ParameterName].ToString()))
+                {
+                    return $"Required parameter '{requiredParam.DisplayName}' is missing or empty";
+                }
             }
 
-            result.Metadata = reportDef;
-
-            // Execute the appropriate data source based on type
-            switch (reportDef.DataSourceType.ToLower())
-            {
-                case "storedprocedure":
-                    result.Data = ExecuteStoredProcedure(reportDef.DataSourceValue, parameters);
-                    break;
-                    
-                case "sql":
-                    result.Data = ExecuteSqlQuery(reportDef.DataSourceValue, parameters);
-                    break;
-                    
-                case "api":
-                    result.Data = FetchDataFromApi(reportDef.DataSourceValue, parameters);
-                    break;
-                    
-                default:
-                    result.Error = "Unsupported data source type";
-                    break;
-            }
+            return null;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error generating report");
-            result.Error = "An error occurred while generating the report";
-        }
-        
-        return result;
-    }
 
-    private DataTable ExecuteStoredProcedure(string procName, Dictionary<string, string> parameters)
-    {
-        var dt = new DataTable();
-        
-        using (var cmd = _dbConnection.CreateCommand())
+        private async Task<DataTable> ExecuteStoredProcedureAsync(IDbConnection connection, string procName, Dictionary<string, object> parameters)
         {
-            cmd.CommandText = procName;
-            cmd.CommandType = CommandType.StoredProcedure;
+            var dataTable = new DataTable();
             
-            // Add parameters
-            foreach (var param in parameters)
+            try
             {
-                var dbParam = cmd.CreateParameter();
-                dbParam.ParameterName = param.Key;
-                dbParam.Value = param.Value;
-                cmd.Parameters.Add(dbParam);
-            }
-            
-            using (var adapter = new SqlDataAdapter((SqlCommand)cmd))
-            {
-                adapter.Fill(dt);
-            }
-        }
-        
-        return dt;
-    }
-    
-    private DataTable ExecuteSqlQuery(string sql, Dictionary<string, string> parameters)
-    {
-        // Implementation for direct SQL queries with parameter substitution
-        var dt = new DataTable();
-        
-        // Security note: ensure proper parameterization to prevent SQL injection
-        using (var cmd = _dbConnection.CreateCommand())
-        {
-            cmd.CommandText = sql;
-            cmd.CommandType = CommandType.Text;
-            
-            // Add parameters
-            foreach (var param in parameters)
-            {
-                var dbParam = cmd.CreateParameter();
-                dbParam.ParameterName = param.Key;
-                dbParam.Value = param.Value;
-                cmd.Parameters.Add(dbParam);
-            }
-            
-            using (var adapter = new SqlDataAdapter((SqlCommand)cmd))
-            {
-                adapter.Fill(dt);
-            }
-        }
-        
-        return dt;
-    }
-    
-    private DataTable FetchDataFromApi(string apiEndpoint, Dictionary<string, string> parameters)
-    {
-        // Implementation for API data sources
-        // This would make HTTP requests and convert JSON responses to DataTable
-        // Not fully implemented here for brevity
-        throw new NotImplementedException("API data source not implemented yet");
-    }
-}
-```
+                if (connection.State != ConnectionState.Open)
+                    connection.Open();
 
-## 3. API Controllers
-
-```csharp
-[ApiController]
-[Route("api/[controller]")]
-[Authorize]
-public class ReportsController : ControllerBase
-{
-    private readonly IReportService _reportService;
-    
-    public ReportsController(IReportService reportService)
-    {
-        _reportService = reportService;
-    }
-    
-    [HttpGet]
-    public IActionResult GetAvailableReports()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value);
-        
-        var reports = _reportService.GetAvailableReports(userId, roles);
-        return Ok(reports);
-    }
-    
-    [HttpGet("{id}")]
-    public IActionResult GetReportDefinition(int id)
-    {
-        var report = _reportService.GetReportDefinition(id);
-        if (report == null)
-            return NotFound();
-            
-        return Ok(report);
-    }
-    
-    [HttpPost("{id}/generate")]
-    public IActionResult GenerateReport(int id, [FromBody] Dictionary<string, string> parameters)
-    {
-        var reportData = _reportService.GenerateReport(id, parameters);
-        if (!string.IsNullOrEmpty(reportData.Error))
-            return BadRequest(reportData.Error);
-            
-        return Ok(reportData);
-    }
-    
-    [HttpGet("export/{id}")]
-    public IActionResult ExportReport(int id, [FromQuery] Dictionary<string, string> parameters, [FromQuery] string format = "excel")
-    {
-        var reportData = _reportService.GenerateReport(id, parameters);
-        if (!string.IsNullOrEmpty(reportData.Error))
-            return BadRequest(reportData.Error);
-            
-        // Generate export based on format
-        byte[] fileContent;
-        string contentType;
-        string fileName;
-        
-        switch (format.ToLower())
-        {
-            case "excel":
-                fileContent = GenerateExcelReport(reportData);
-                contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-                fileName = $"{reportData.Metadata.ReportName}_{DateTime.Now:yyyyMMdd}.xlsx";
-                break;
+                using var command = connection.CreateCommand();
+                command.CommandText = procName;
+                command.CommandType = CommandType.StoredProcedure;
+                command.CommandTimeout = 300; // 5 minutes timeout
                 
-            case "pdf":
-                fileContent = GeneratePdfReport(reportData);
-                contentType = "application/pdf";
-                fileName = $"{reportData.Metadata.ReportName}_{DateTime.Now:yyyyMMdd}.pdf";
-                break;
+                foreach (var param in parameters)
+                {
+                    var dbParam = command.CreateParameter();
+                    dbParam.ParameterName = $"@{param.Key}";
+                    dbParam.Value = ConvertParameterValue(param.Value);
+                    command.Parameters.Add(dbParam);
+                }
+
+                using var reader = command.ExecuteReader();
+                dataTable.Load(reader);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing stored procedure: {ProcName}", procName);
+                throw;
+            }
+            
+            return dataTable;
+        }
+
+        private async Task<DataTable> ExecuteSqlQueryAsync(IDbConnection connection, string sql, Dictionary<string, object> parameters)
+        {
+            var dataTable = new DataTable();
+            
+            try
+            {
+                if (connection.State != ConnectionState.Open)
+                    connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = sql;
+                command.CommandType = CommandType.Text;
+                command.CommandTimeout = 300; // 5 minutes timeout
                 
-            case "csv":
-                fileContent = GenerateCsvReport(reportData);
-                contentType = "text/csv";
-                fileName = $"{reportData.Metadata.ReportName}_{DateTime.Now:yyyyMMdd}.csv";
-                break;
+                foreach (var param in parameters)
+                {
+                    var dbParam = command.CreateParameter();
+                    dbParam.ParameterName = $"@{param.Key}";
+                    dbParam.Value = ConvertParameterValue(param.Value);
+                    command.Parameters.Add(dbParam);
+                }
                 
-            default:
-                return BadRequest("Unsupported export format");
+                using var reader = command.ExecuteReader();
+                dataTable.Load(reader);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing SQL query: {Sql}", sql);
+                throw;
+            }
+            
+            return dataTable;
+        }
+
+        private object ConvertParameterValue(object value)
+        {
+            if (value == null)
+                return DBNull.Value;
+
+            var stringValue = value.ToString();
+            
+            if (string.IsNullOrWhiteSpace(stringValue))
+                return DBNull.Value;
+
+            // Try to parse dates
+            if (DateTime.TryParse(stringValue, out DateTime dateValue))
+            {
+                return dateValue;
+            }
+
+            // Try to parse numbers
+            if (int.TryParse(stringValue, out int intValue))
+            {
+                return intValue;
+            }
+
+            if (decimal.TryParse(stringValue, out decimal decimalValue))
+            {
+                return decimalValue;
+            }
+
+            // Return as string
+            return stringValue;
         }
         
-        return File(fileContent, contentType, fileName);
-    }
-    
-    private byte[] GenerateExcelReport(ReportData reportData)
-    {
-        // Implementation for Excel export
-        // Not fully implemented for brevity
-        throw new NotImplementedException();
-    }
-    
-    private byte[] GeneratePdfReport(ReportData reportData)
-    {
-        // Implementation for PDF export
-        throw new NotImplementedException();
-    }
-    
-    private byte[] GenerateCsvReport(ReportData reportData)
-    {
-        // Implementation for CSV export
-        throw new NotImplementedException();
-    }
-}
-```
+        public async Task<int> CreateReportAsync(ReportDefinition report)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var sql = @"
+                    INSERT INTO SnehaReportDefinitions 
+                    (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+                     Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+                    OUTPUT INSERTED.ReportId
+                    VALUES 
+                    (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+                     @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
+                
+                var reportId = await connection.QuerySingleAsync<int>(sql, report);
+                
+                // Insert parameters if any
+                if (report.ReportParameters?.Any() == true)
+                {
+                    var parameterSql = @"
+                        INSERT INTO SnehaReportParameters 
+                        (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                         IsRequired, ValidationRule, DropdownOptions)
+                        VALUES 
+                        (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                         @IsRequired, @ValidationRule, @DropdownOptions)";
+                    
+                    foreach (var param in report.ReportParameters)
+                    {
+                        param.ReportId = reportId;
+                        await connection.ExecuteAsync(parameterSql, param);
+                    }
+                }
+                
+                return reportId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+                throw;
+            }
+        }
 
-## 4. Frontend Implementation
+        public async Task<int> CreateReportWithParametersAsync(CreateReportWithParametersRequest request)
+        {
+            using var connection = _databaseService.GetConnection();
+            using var transaction = connection.BeginTransaction();
+            
+            try
+            {
+                _logger.LogInformation("Creating report with parameters: {ReportName}", request.ReportName);
 
-### Report List Component
+                // Insert the report definition
+                var reportSql = @"
+                    INSERT INTO SnehaReportDefinitions 
+                    (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+                     Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+                    OUTPUT INSERTED.ReportId
+                    VALUES 
+                    (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+                     @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
 
-```typescript
-@Component({
-  selector: 'app-report-list',
-  templateUrl: './report-list.component.html'
-})
-export class ReportListComponent implements OnInit {
-  reports: ReportDefinition[] = [];
-  categories: string[] = [];
-  filteredReports: ReportDefinition[] = [];
-  selectedCategory: string = 'All';
-  
-  constructor(private reportService: ReportService) {}
-  
-  ngOnInit() {
-    this.loadReports();
-  }
-  
-  loadReports() {
-    this.reportService.getAvailableReports().subscribe(reports => {
-      this.reports = reports;
-      this.filteredReports = reports;
-      this.extractCategories();
-    });
-  }
-  
-  extractCategories() {
-    this.categories = ['All', ...new Set(this.reports.map(r => r.category))];
-  }
-  
-  filterByCategory(category: string) {
-    this.selectedCategory = category;
-    if (category === 'All') {
-      this.filteredReports = this.reports;
-    } else {
-      this.filteredReports = this.reports.filter(r => r.category === category);
-    }
-  }
-  
-  runReport(report: ReportDefinition) {
-    // Navigate to report viewer with report ID
-    this.router.navigate(['/reports/view', report.reportId]);
-  }
-}
-```
+                var reportId = await connection.QuerySingleAsync<int>(reportSql, new
+                {
+                    ReportName = request.ReportName,
+                    Description = request.Description,
+                    Category = request.Category,
+                    DataSourceType = request.DataSourceType,
+                    DataSourceValue = request.DataSourceValue,
+                    Parameters = request.Parameters ?? "",
+                    LayoutSettings = request.LayoutSettings ?? "",
+                    AccessRoles = request.AccessRoles ?? "[]",
+                    IsActive = request.IsActive
+                }, transaction);
 
-### Report Viewer Component
+                _logger.LogInformation("Created report definition with ID: {ReportId}", reportId);
 
-```typescript
-@Component({
-  selector: 'app-report-viewer',
-  templateUrl: './report-viewer.component.html'
-})
-export class ReportViewerComponent implements OnInit {
-  reportId: number;
-  reportDefinition: ReportDefinition;
-  reportData: any;
-  parameters: any = {};
-  isLoading: boolean = false;
-  
-  constructor(
-    private route: ActivatedRoute,
-    private reportService: ReportService
-  ) {}
-  
-  ngOnInit() {
-    this.route.params.subscribe(params => {
-      this.reportId = +params['id'];
-      this.loadReportDefinition();
-    });
-  }
-  
-  loadReportDefinition() {
-    this.reportService.getReportDefinition(this.reportId)
-      .subscribe(definition => {
-        this.reportDefinition = definition;
+                // Insert parameters if any
+                if (request.ReportParameters?.Any() == true)
+                {
+                    var parameterSql = @"
+                        INSERT INTO SnehaReportParameters 
+                        (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                         IsRequired, ValidationRule, DropdownOptions)
+                        VALUES 
+                        (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                         @IsRequired, @ValidationRule, @DropdownOptions)";
+
+                    foreach (var param in request.ReportParameters)
+                    {
+                        await connection.ExecuteAsync(parameterSql, new
+                        {
+                            ReportId = reportId,
+                            ParameterName = param.ParameterName,
+                            DisplayName = param.DisplayName,
+                            ParameterType = param.ParameterType,
+                            DefaultValue = param.DefaultValue,
+                            IsRequired = param.IsRequired,
+                            ValidationRule = param.ValidationRule,
+                            DropdownOptions = param.DropdownOptions
+                        }, transaction);
+                    }
+
+                    _logger.LogInformation("Created {ParameterCount} parameters for report {ReportId}", 
+                        request.ReportParameters.Count, reportId);
+                }
+
+                transaction.Commit();
+                
+                _logger.LogInformation("Successfully created report {ReportId} with {ParameterCount} parameters", 
+                    reportId, request.ReportParameters?.Count ?? 0);
+
+                return reportId;
+            }
+            catch (Exception ex)
+            {
+                transaction.Rollback();
+                _logger.LogError(ex, "Error creating report with parameters: {ReportName}", request.ReportName);
+                throw;
+            }
+        }
         
-        // Initialize parameters with default values
-        if (this.reportDefinition.parameters) {
-          this.reportDefinition.parameters.forEach(p => {
-            this.parameters[p.parameterName] = p.defaultValue;
-          });
+        public async Task<bool> UpdateReportAsync(ReportDefinition report)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                var sql = @"
+                    UPDATE SnehaReportDefinitions 
+                    SET ReportName = @ReportName, Description = @Description, Category = @Category,
+                        DataSourceType = @DataSourceType, DataSourceValue = @DataSourceValue,
+                        Parameters = @Parameters, LayoutSettings = @LayoutSettings, 
+                        AccessRoles = @AccessRoles, IsActive = @IsActive, ModifiedDate = GETDATE()
+                    WHERE ReportId = @ReportId";
+                
+                var rowsAffected = await connection.ExecuteAsync(sql, report);
+                return rowsAffected > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating report: {ReportId}", report.ReportId);
+                throw;
+            }
         }
-      });
-  }
-  
-  generateReport() {
-    this.isLoading = true;
-    this.reportService.generateReport(this.reportId, this.parameters)
-      .subscribe(
-        data => {
-          this.reportData = data;
-          this.isLoading = false;
-        },
-        error => {
-          console.error('Error generating report', error);
-          this.isLoading = false;
+        
+        public async Task<bool> DeleteReportAsync(int reportId)
+        {
+            try
+            {
+                using var connection = _databaseService.GetConnection();
+                
+                // Soft delete
+                var sql = @"
+                    UPDATE SnehaReportDefinitions 
+                    SET IsActive = 0, ModifiedDate = GETDATE()
+                    WHERE ReportId = @ReportId";
+                
+                var rowsAffected = await connection.ExecuteAsync(sql, new { ReportId = reportId });
+                return rowsAffected > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting report: {ReportId}", reportId);
+                throw;
+            }
         }
-      );
-  }
-  
-  exportReport(format: string) {
-    this.reportService.exportReport(this.reportId, this.parameters, format);
-  }
-}
-```
-
-## 5. UI Components (HTML Templates)
-
-### Report List Page
-
-```html
-<div class="reports-container">
-  <h2>Reports Dashboard</h2>
-  
-  <div class="category-filter">
-    <label>Filter by Category:</label>
-    <div class="btn-group">
-      <button *ngFor="let category of categories" 
-              [class.active]="category === selectedCategory"
-              (click)="filterByCategory(category)"
-              class="btn btn-outline-primary">
-        {{category}}
-      </button>
-    </div>
-  </div>
-  
-  <div class="report-cards">
-    <div class="row">
-      <div *ngFor="let report of filteredReports" class="col-md-4 mb-4">
-        <div class="card h-100">
-          <div class="card-body">
-            <h5 class="card-title">{{report.reportName}}</h5>
-            <p class="card-text">{{report.description}}</p>
-            <span class="badge badge-info">{{report.category}}</span>
-          </div>
-          <div class="card-footer">
-            <button class="btn btn-primary" (click)="runReport(report)">
-              Run Report
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-```
-
-### Report Viewer Page
-
-```html
-<div class="report-viewer" *ngIf="reportDefinition">
-  <div class="report-header">
-    <h2>{{reportDefinition.reportName}}</h2>
-    <p>{{reportDefinition.description}}</p>
-  </div>
-  
-  <div class="report-parameters" *ngIf="reportDefinition.parameters?.length > 0">
-    <h4>Parameters</h4>
-    <form (ngSubmit)="generateReport()" #paramForm="ngForm">
-      <div class="row">
-        <div *ngFor="let param of reportDefinition.parameters" class="col-md-4 mb-3">
-          <div [ngSwitch]="param.parameterType">
-            <!-- Text input -->
-            <div *ngSwitchCase="'Text'" class="form-group">
-              <label [for]="param.parameterName">{{param.displayName}}</label>
-              <input type="text" 
-                     class="form-control" 
-                     [id]="param.parameterName" 
-                     [name]="param.parameterName"
-                     [(ngModel)]="parameters[param.parameterName]"
-                     [required]="param.isRequired">
-            </div>
-            
-            <!-- Number input -->
-            <div *ngSwitchCase="'Number'" class="form-group">
-              <label [for]="param.parameterName">{{param.displayName}}</label>
-              <input type="number" 
-                     class="form-control" 
-                     [id]="param.parameterName" 
-                     [name]="param.parameterName"
-                     [(ngModel)]="parameters[param.parameterName]"
-                     [required]="param.isRequired">
-            </div>
-            
-            <!-- Date input -->
-            <div *ngSwitchCase="'Date'" class="form-group">
-              <label [for]="param.parameterName">{{param.displayName}}</label>
-              <input type="date" 
-                     class="form-control" 
-                     [id]="param.parameterName" 
-                     [name]="param.parameterName"
-                     [(ngModel)]="parameters[param.parameterName]"
-                     [required]="param.isRequired">
-            </div>
-            
-            <!-- Dropdown input -->
-            <div *ngSwitchCase="'Dropdown'" class="form-group">
-              <label [for]="param.parameterName">{{param.displayName}}</label>
-              <select class="form-control"
-                      [id]="param.parameterName" 
-                      [name]="param.parameterName"
-                      [(ngModel)]="parameters[param.parameterName]"
-                      [required]="param.isRequired">
-                <option *ngFor="let option of param.dropdownOptions" [value]="option.value">
-                  {{option.display}}
-                </option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary" [disabled]="!paramForm.form.valid || isLoading">
-          <span *ngIf="isLoading" class="spinner-border spinner-border-sm" role="status"></span>
-          Generate Report
-        </button>
-      </div>
-    </form>
-  </div>
-  
-  <div class="report-actions mt-3" *ngIf="reportData">
-    <div class="btn-group">
-      <button class="btn btn-outline-secondary" (click)="exportReport('excel')">
-        <i class="fa fa-file-excel-o"></i> Export to Excel
-      </button>
-      <button class="btn btn-outline-secondary" (click)="exportReport('pdf')">
-        <i class="fa fa-file-pdf-o"></i> Export to PDF
-      </button>
-      <button class="btn btn-outline-secondary" (click)="exportReport('csv')">
-        <i class="fa fa-file-text-o"></i> Export to CSV
-      </button>
-    </div>
-  </div>
-  
-  <div class="report-data mt-4" *ngIf="reportData">
-    <div class="table-responsive">
-      <table class="table table-striped table-bordered">
-        <thead>
-          <tr>
-            <th *ngFor="let column of reportData.columns">{{column.displayName}}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let row of reportData.rows">
-            <td *ngFor="let column of reportData.columns">{{row[column.name]}}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-```
-
-## 6. Report Administration UI
-
-Additionally, you could implement an admin UI for managing report definitions, which would allow non-developers to create and modify reports.
-
-```csharp
-[ApiController]
-[Route("api/admin/reports")]
-[Authorize(Roles = "ReportAdmin")]
-public class ReportAdminController : ControllerBase
-{
-    private readonly IReportAdminService _adminService;
-    
-    public ReportAdminController(IReportAdminService adminService)
-    {
-        _adminService = adminService;
-    }
-    
-    [HttpGet]
-    public IActionResult GetAllReports()
-    {
-        return Ok(_adminService.GetAllReports());
-    }
-    
-    [HttpGet("{id}")]
-    public IActionResult GetReport(int id)
-    {
-        var report = _adminService.GetReport(id);
-        if (report == null)
-            return NotFound();
-            
-        return Ok(report);
-    }
-    
-    [HttpPost]
-    public IActionResult CreateReport([FromBody] ReportDefinition report)
-    {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-            
-        var id = _adminService.CreateReport(report);
-        return CreatedAtAction(nameof(GetReport), new { id }, report);
-    }
-    
-    [HttpPut("{id}")]
-    public IActionResult UpdateReport(int id, [FromBody] ReportDefinition report)
-    {
-        if (id != report.ReportId)
-            return BadRequest();
-            
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-            
-        _adminService.UpdateReport(report);
-        return NoContent();
-    }
-    
-    [HttpDelete("{id}")]
-    public IActionResult DeleteReport(int id)
-    {
-        _adminService.DeleteReport(id);
-        return NoContent();
-    }
-    
-    [HttpPost("{id}/parameters")]
-    public IActionResult AddParameter(int id, [FromBody] ReportParameter parameter)
-    {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-            
-        _adminService.AddParameter(id, parameter);
-        return Ok();
-    }
-    
-    [HttpDelete("parameters/{paramId}")]
-    public IActionResult DeleteParameter(int paramId)
-    {
-        _adminService.DeleteParameter(paramId);
-        return NoContent();
-    }
-    
-    [HttpPost("{id}/test")]
-    public IActionResult TestReport(int id, [FromBody] Dictionary<string, string> parameters)
-    {
-        var result = _adminService.TestReport(id, parameters);
-        return Ok(result);
     }
 }
-```
 
-## 7. Dependency Injection Setup
 
-```csharp
-public void ConfigureServices(IServiceCollection services)
-{
-    // Add database connection
-    services.AddScoped<IDbConnection>(sp => {
-        var configuration = sp.GetRequiredService<IConfiguration>();
-        return new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
-    });
-    
-    // Register services
-    services.AddScoped<IReportService, ReportService>();
-    services.AddScoped<IReportAdminService, ReportAdminService>();
-    
-    // Other service registrations...
-}
-```
-
-## 8. Benefits of This Approach
-
-1. **Dynamic Report Creation** - New reports can be added without code changes
-2. **Flexible Data Sources** - Support for stored procedures, SQL queries, and APIs
-3. **Role-Based Access** - Reports visibility controlled by user roles
-4. **Multiple Export Formats** - Built-in support for Excel, PDF, and CSV exports
-5. **Parameter Management** - Flexible parameter system with validation
-6. **Separation of Concerns** - Clean architecture with clear responsibilities
-
-## 9. Usage Example
-
-With this system in place, adding a new report would be as simple as:
-
-1. Creating a stored procedure or SQL query to fetch the data
-2. Adding a record to the `ReportDefinitions` table with appropriate metadata
-3. (Optional) Adding parameter definitions to the `ReportParameters` table
-
-The report would immediately appear in the UI for users with appropriate roles, and they could run and export it without any additional development work.
-
-This approach creates a robust, flexible reporting system where business users can define reports through database entries, and the application dynamically renders and executes them.
