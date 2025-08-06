@@ -803,4 +803,809 @@ tbody tr:hover {
 
 .form-group textarea {
   resize: vertical;
+  font-family:import React, { useState, useEffect } from 'react';
+import './App.css';
+
+const API_BASE = 'http://localhost:5000/api';
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('reports');
+  const [reports, setReports] = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [parameters, setParameters] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // New Report Form State
+  const [newReport, setNewReport] = useState({
+    reportName: '',
+    description: '',
+    category: '',
+    dataSourceType: 'SQL',
+    dataSourceValue: '',
+    accessRoles: '["Admin"]'
+  });
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE}/reports`);
+      const data = await response.json();
+      if (data.success) {
+        setReports(data.data);
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Failed to fetch reports');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchReportDefinition = async (reportId) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE}/reports/${reportId}`);
+      const data = await response.json();
+      if (data.success) {
+        setSelectedReport(data.data);
+        // Initialize parameters with default values
+        const initialParams = {};
+        data.data.reportParameters.forEach(param => {
+          if (param.defaultValue) {
+            initialParams[param.parameterName] = param.defaultValue;
+          }
+        });
+        setParameters(initialParams);
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Failed to fetch report definition');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateReport = async () => {
+    if (!selectedReport) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/reports/${selectedReport.reportId}/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ parameters })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setReportData(data.data);
+        setSuccess('Report generated successfully');
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Failed to generate report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createReport = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setError('');
+      
+      const reportPayload = {
+        ...newReport,
+        isActive: true
+      };
+      
+      const response = await fetch(`${API_BASE}/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(reportPayload)
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setSuccess('Report created successfully');
+        setNewReport({
+          reportName: '',
+          description: '',
+          category: '',
+          dataSourceType: 'SQL',
+          dataSourceValue: '',
+          accessRoles: '["Admin"]'
+        });
+        fetchReports();
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Failed to create report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleParameterChange = (paramName, value) => {
+    setParameters(prev => ({
+      ...prev,
+      [paramName]: value
+    }));
+  };
+
+  const exportToCSV = () => {
+    if (!reportData || !reportData.rows) return;
+    
+    const csvContent = [
+      reportData.columns.map(col => col.name).join(','),
+      ...reportData.rows.map(row => 
+        reportData.columns.map(col => {
+          const value = row[col.name];
+          return value ? `"${value}"` : '';
+        }).join(',')
+      )
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedReport?.reportName || 'report'}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const renderParameterInput = (param) => {
+    switch (param.parameterType.toLowerCase()) {
+      case 'text':
+      case 'string':
+        return (
+          <input
+            type="text"
+            value={parameters[param.parameterName] || ''}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            placeholder={param.defaultValue}
+            required={param.isRequired}
+          />
+        );
+      case 'number':
+      case 'int':
+        return (
+          <input
+            type="number"
+            value={parameters[param.parameterName] || ''}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            placeholder={param.defaultValue}
+            required={param.isRequired}
+          />
+        );
+      case 'date':
+      case 'datetime':
+        return (
+          <input
+            type="date"
+            value={parameters[param.parameterName] || ''}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+          />
+        );
+      case 'dropdown':
+        const options = param.dropdownOptionsList || [];
+        return (
+          <select
+            value={parameters[param.parameterName] || ''}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            required={param.isRequired}
+          >
+            <option value="">Select...</option>
+            {options.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.display}</option>
+            ))}
+          </select>
+        );
+      default:
+        return (
+          <input
+            type="text"
+            value={parameters[param.parameterName] || ''}
+            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
+            placeholder={param.defaultValue}
+            required={param.isRequired}
+          />
+        );
+    }
+  };
+
+  return (
+    <div className="app">
+      <div className="header">
+        <h1>Dynamic Report Builder</h1>
+        <div className="tabs">
+          <button 
+            className={activeTab === 'reports' ? 'active' : ''} 
+            onClick={() => setActiveTab('reports')}
+          >
+            Reports
+          </button>
+          <button 
+            className={activeTab === 'create' ? 'active' : ''} 
+            onClick={() => setActiveTab('create')}
+          >
+            Create Report
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert error">
+          <span>{error}</span>
+          <button onClick={() => setError('')}>×</button>
+        </div>
+      )}
+
+      {success && (
+        <div className="alert success">
+          <span>{success}</span>
+          <button onClick={() => setSuccess('')}>×</button>
+        </div>
+      )}
+
+      <div className="content">
+        {activeTab === 'reports' && (
+          <div className="reports-section">
+            <div className="sidebar">
+              <h3>Available Reports</h3>
+              {loading && <div className="loading">Loading reports...</div>}
+              <div className="reports-list">
+                {reports.map(report => (
+                  <div 
+                    key={report.reportId} 
+                    className={`report-item ${selectedReport?.reportId === report.reportId ? 'selected' : ''}`}
+                    onClick={() => fetchReportDefinition(report.reportId)}
+                  >
+                    <h4>{report.reportName}</h4>
+                    <p>{report.description}</p>
+                    <small>Category: {report.category}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="main-content">
+              {selectedReport ? (
+                <div>
+                  <div className="report-header">
+                    <h2>{selectedReport.reportName}</h2>
+                    <p>{selectedReport.description}</p>
+                  </div>
+
+                  {selectedReport.reportParameters && selectedReport.reportParameters.length > 0 && (
+                    <div className="parameters-section">
+                      <h3>Parameters</h3>
+                      <div className="parameters-form">
+                        {selectedReport.reportParameters.map(param => (
+                          <div key={param.parameterId} className="parameter-group">
+                            <label>
+                              {param.displayName}
+                              {param.isRequired && <span className="required">*</span>}
+                            </label>
+                            {renderParameterInput(param)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="actions">
+                    <button 
+                      className="btn primary" 
+                      onClick={generateReport}
+                      disabled={loading}
+                    >
+                      {loading ? 'Generating...' : 'Generate Report'}
+                    </button>
+                    {reportData && (
+                      <button className="btn secondary" onClick={exportToCSV}>
+                        Export to CSV
+                      </button>
+                    )}
+                  </div>
+
+                  {reportData && (
+                    <div className="report-results">
+                      <h3>Report Results ({Array.isArray(reportData.rows) ? reportData.rows.length : 0} rows)</h3>
+                      <div className="table-container">
+                        <table>
+                          <thead>
+                            <tr>
+                              {reportData.columns?.map(col => (
+                                <th key={col.name}>{col.name}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Array.isArray(reportData.rows) && reportData.rows.map((row, index) => (
+                              <tr key={index}>
+                                {reportData.columns?.map(col => (
+                                  <td key={col.name}>
+                                    {row[col.name] !== null && row[col.name] !== undefined 
+                                      ? String(row[col.name]) 
+                                      : ''}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="no-selection">
+                  <h3>Select a report to view details</h3>
+                  <p>Choose a report from the list on the left to view its parameters and generate data.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'create' && (
+          <div className="create-section">
+            <h2>Create New Report</h2>
+            <form onSubmit={createReport} className="create-form">
+              <div className="form-group">
+                <label>Report Name *</label>
+                <input
+                  type="text"
+                  value={newReport.reportName}
+                  onChange={(e) => setNewReport({...newReport, reportName: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={newReport.description}
+                  onChange={(e) => setNewReport({...newReport, description: e.target.value})}
+                  rows="3"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Category</label>
+                <input
+                  type="text"
+                  value={newReport.category}
+                  onChange={(e) => setNewReport({...newReport, category: e.target.value})}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Data Source Type *</label>
+                <select
+                  value={newReport.dataSourceType}
+                  onChange={(e) => setNewReport({...newReport, dataSourceType: e.target.value})}
+                  required
+                >
+                  <option value="SQL">SQL Query</option>
+                  <option value="StoredProcedure">Stored Procedure</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Data Source Value *</label>
+                <textarea
+                  value={newReport.dataSourceValue}
+                  onChange={(e) => setNewReport({...newReport, dataSourceValue: e.target.value})}
+                  rows="6"
+                  placeholder="Enter SQL query or stored procedure name"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Access Roles (JSON format)</label>
+                <input
+                  type="text"
+                  value={newReport.accessRoles}
+                  onChange={(e) => setNewReport({...newReport, accessRoles: e.target.value})}
+                  placeholder='["Admin", "HR"]'
+                />
+              </div>
+
+              <div className="form-actions">
+                <button type="submit" className="btn primary" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create Report'}
+                </button>
+                <button type="button" className="btn secondary" onClick={() => {
+                  setNewReport({
+                    reportName: '',
+                    description: '',
+                    category: '',
+                    dataSourceType: 'SQL',
+                    dataSourceValue: '',
+                    accessRoles: '["Admin"]'
+                  });
+                }}>
+                  Clear Form
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Add CSS styles
+const styles = `
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.header {
+  background: white;
+  border-bottom: 1px solid #ddd;
+  padding: 1rem 2rem;
+}
+
+.header h1 {
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.tabs {
+  display: flex;
+  gap: 1rem;
+}
+
+.tabs button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  background: #f8f9fa;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.tabs button:hover {
+  background: #e9ecef;
+}
+
+.tabs button.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.alert {
+  padding: 0.75rem 1rem;
+  margin: 1rem 2rem;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.alert.error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.alert.success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.alert button {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content {
+  padding: 2rem;
+}
+
+.reports-section {
+  display: flex;
+  gap: 2rem;
+  height: calc(100vh - 200px);
+}
+
+.sidebar {
+  flex: 0 0 300px;
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.report-item {
+  padding: 1rem;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.report-item:hover {
+  background: #f8f9fa;
+  border-color: #007bff;
+}
+
+.report-item.selected {
+  background: #e7f3ff;
+  border-color: #007bff;
+}
+
+.report-item h4 {
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+}
+
+.report-item p {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.report-item small {
+  color: #868e96;
+}
+
+.main-content {
+  flex: 1;
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  overflow-y: auto;
+}
+
+.report-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.report-header h2 {
+  color: #2c3e50;
+  margin-bottom: 0.5rem;
+}
+
+.parameters-section {
+  margin-bottom: 2rem;
+}
+
+.parameters-section h3 {
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.parameters-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.parameter-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.parameter-group label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+}
+
+.required {
+  color: #dc3545;
+  margin-left: 0.25rem;
+}
+
+.parameter-group input,
+.parameter-group select {
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.parameter-group input:focus,
+.parameter-group select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.actions {
+  margin: 2rem 0;
+  display: flex;
+  gap: 1rem;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: #007bff;
+  color: white;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.btn.secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: #545b62;
+}
+
+.report-results {
+  margin-top: 2rem;
+}
+
+.report-results h3 {
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.table-container {
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+
+th {
+  background: #f8f9fa;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.no-selection {
+  text-align: center;
+  color: #6c757d;
+  margin-top: 4rem;
+}
+
+.create-section {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.create-section h2 {
+  margin-bottom: 2rem;
+  color: #2c3e50;
+}
+
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 0.75rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-group textarea {
+  resize: vertical;
   font-family:
