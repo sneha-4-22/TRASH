@@ -36,7 +36,7 @@ CREATE TABLE SnehaReportDefinitions (
     DataSourceType NVARCHAR(50) NOT NULL,
     DataSourceValue NVARCHAR(MAX) NOT NULL, 
     Parameters NVARCHAR(MAX),
-    LayoutSettings NVARCHAR(MAX), 
+    LayoutSettings NVARCHAR(MAX) DEFAULT TBD , -- TO BE DETERMINED 
     AccessRoles NVARCHAR(MAX),
     IsActive BIT DEFAULT 1,
     CreatedDate DATETIME DEFAULT GETDATE(),
