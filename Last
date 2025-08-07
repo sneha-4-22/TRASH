@@ -1,0 +1,102 @@
+[HttpPost]
+public async Task<ActionResult<ApiResponse<int>>> CreateReport([FromBody] ReportDefinition report)
+{
+    try
+    {
+        _logger.LogInformation("Received report creation request");
+        
+        if (report == null)
+        {
+            _logger.LogWarning("Report data is null");
+            return BadRequest(ApiResponse<int>.ErrorResult("Report data is required"));
+        }
+
+        _logger.LogInformation("Report data received: {@Report}", new {
+            ReportName = report.ReportName,
+            Description = report.Description,
+            Category = report.Category,
+            DataSourceType = report.DataSourceType,
+            DataSourceValue = report.DataSourceValue?.Substring(0, Math.Min(50, report.DataSourceValue?.Length ?? 0)) + "...",
+            AccessRoles = report.AccessRoles,
+            IsActive = report.IsActive,
+            ParameterCount = report.ReportParameters?.Count ?? 0
+        });
+
+        // Manual validation instead of ModelState
+        var validationErrors = new List<string>();
+        
+        if (string.IsNullOrWhiteSpace(report.ReportName))
+        {
+            validationErrors.Add("Report name is required");
+        }
+        else if (report.ReportName.Length > 100)
+        {
+            validationErrors.Add("Report name cannot exceed 100 characters");
+        }
+            
+        if (string.IsNullOrWhiteSpace(report.DataSourceType))
+        {
+            validationErrors.Add("Data source type is required");
+        }
+        else if (report.DataSourceType.Length > 50)
+        {
+            validationErrors.Add("Data source type cannot exceed 50 characters");
+        }
+            
+        if (string.IsNullOrWhiteSpace(report.DataSourceValue))
+        {
+            validationErrors.Add("Data source value is required");
+        }
+
+        if (!string.IsNullOrEmpty(report.Description) && report.Description.Length > 500)
+        {
+            validationErrors.Add("Description cannot exceed 500 characters");
+        }
+
+        if (!string.IsNullOrEmpty(report.Category) && report.Category.Length > 50)
+        {
+            validationErrors.Add("Category cannot exceed 50 characters");
+        }
+        
+        if (validationErrors.Any())
+        {
+            _logger.LogWarning("Validation failed: {@Errors}", validationErrors);
+            return BadRequest(ApiResponse<int>.ErrorResult("Validation failed", validationErrors));
+        }
+
+        // Clean up null values
+        report.Description = report.Description ?? "";
+        report.Category = report.Category ?? "";
+        report.Parameters = report.Parameters ?? "";
+        report.LayoutSettings = report.LayoutSettings ?? "";
+        report.AccessRoles = report.AccessRoles ?? "[]";
+        
+        _logger.LogInformation("Creating report with cleaned data");
+        
+        var reportId = await _reportService.CreateReportAsync(report);
+        
+        _logger.LogInformation("Successfully created report with ID: {ReportId}", reportId);
+        
+        return CreatedAtAction(
+            nameof(GetReportDefinition), 
+            new { id = reportId }, 
+            ApiResponse<int>.SuccessResult(reportId, "Report created successfully")
+        );
+    }
+    catch (System.Data.SqlClient.SqlException sqlEx)
+    {
+        _logger.LogError(sqlEx, "Database error creating report: {ReportName}", report?.ReportName);
+        
+        if (sqlEx.Message.Contains("timeout") || sqlEx.Message.Contains("connection"))
+        {
+            return StatusCode(503, ApiResponse<int>.ErrorResult("Database connection issue. Please try again."));
+        }
+        
+        return StatusCode(500, ApiResponse<int>.ErrorResult($"Database error: {sqlEx.Message}"));
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error creating report: {ReportName}", report?.ReportName);
+        return StatusCode(500, ApiResponse<int>.ErrorResult($"Internal server error: {ex.Message}"));
+    }
+}
