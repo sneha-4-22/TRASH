@@ -1,4 +1,90 @@
-
+Previewing parameters for: 
+{dataSourceType: 'SQL', dataSourceValue: 'SELECT * FROM PlanAlerts WITH(NOLOCK) WHERE PlanAlertID= @PlanAlertID ORDER BY CreatedDate DESC'}
+reportService.js:18 API Request: 
+{method: 'post', url: '/reports/preview-parameters', data: {…}, params: undefined}
+reportService.js:35 API Response: 
+{url: '/reports/preview-parameters', status: 200, data: {…}}
+ReportForm.js:55 Detected parameters: 
+[{…}]
+ReportForm.js:90 Form submitted with data: 
+{reportName: 'CUSTOM GET ALL NOTES FOR GIVEN PLANALERT', description: 'information ', category: 'CUSTOM PLAN ALERT', dataSourceType: 'SQL', dataSourceValue: 'SELECT * FROM PlanAlerts WITH(NOLOCK) WHERE PlanAlertID= @PlanAlertID ORDER BY CreatedDate DESC', …}
+ReportForm.js:128 Final report data being sent: 
+{reportName: 'CUSTOM GET ALL NOTES FOR GIVEN PLANALERT', description: 'information', category: 'CUSTOM PLAN ALERT', dataSourceType: 'SQL', dataSourceValue: 'SELECT * FROM PlanAlerts WITH(NOLOCK) WHERE PlanAlertID= @PlanAlertID ORDER BY CreatedDate DESC', …}
+ReportForm.js:129 AccessRoles formatted as: ["Admin"]
+ReportForm.js:130 Parameters to be created: 
+[{…}]
+reportService.js:145 Creating report with data: 
+{reportName: 'CUSTOM GET ALL NOTES FOR GIVEN PLANALERT', description: 'information', category: 'CUSTOM PLAN ALERT', dataSourceType: 'SQL', dataSourceValue: 'SELECT * FROM PlanAlerts WITH(NOLOCK) WHERE PlanAlertID= @PlanAlertID ORDER BY CreatedDate DESC', …}
+reportService.js:18 API Request: 
+{method: 'post', url: '/reports', data: {…}, params: undefined}
+reportService.js:169 
+ 
+ POST http://localhost:5118/api/reports 400 (Bad Request)
+reportService.js:43 
+ Response Error: 
+{url: '/reports', status: 400, message: 'Request failed with status code 400', data: {…}}
+reportService.js:183 
+ Error creating report: 
+AxiosError {message: 'Request failed with status code 400', name: 'AxiosError', code: 'ERR_BAD_REQUEST', config: {…}, request: XMLHttpRequest, …}
+ReportForm.js:133 Response received: 
+{success: false, message: 'Request failed with status code 400', data: null}
+ReportForm.js:142 
+ Report creation failed: 
+{success: false, message: 'Request failed with status code 400', data: null}
+data
+: 
+null
+message
+: 
+"Request failed with status code 400"
+success
+: 
+false
+[[Prototype]]
+: 
+Object
+constructor
+: 
+ƒ Object()
+hasOwnProperty
+: 
+ƒ hasOwnProperty()
+isPrototypeOf
+: 
+ƒ isPrototypeOf()
+propertyIsEnumerable
+: 
+ƒ propertyIsEnumerable()
+toLocaleString
+: 
+ƒ toLocaleString()
+toString
+: 
+ƒ toString()
+valueOf
+: 
+ƒ valueOf()
+__defineGetter__
+: 
+ƒ __defineGetter__()
+__defineSetter__
+: 
+ƒ __defineSetter__()
+__lookupGetter__
+: 
+ƒ __lookupGetter__()
+__lookupSetter__
+: 
+ƒ __lookupSetter__()
+__proto__
+: 
+(...)
+get __proto__
+: 
+ƒ __proto__()
+set __proto__
+: 
+ƒ __proto__()
 Dynamic Report Builder
 I've designed a flexible report generation system where reports can be created through database entries and automatically appear in the UI without code changes.
 Key Components
@@ -132,6 +218,65 @@ namespace Custom_report.Controllers
             }
         }
         
+        /// <summary>
+        /// Preview parameters that would be extracted from SQL/Stored Procedure
+        /// </summary>
+        [HttpPost("preview-parameters")]
+        public ActionResult<ApiResponse<List<ParameterPreview>>> PreviewParameters([FromBody] ParameterPreviewRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(request.DataSourceValue))
+                {
+                    return BadRequest(ApiResponse<List<ParameterPreview>>.ErrorResult("DataSourceValue is required"));
+                }
+
+                var parameters = _reportService.ExtractParametersFromSql(request.DataSourceValue);
+                var previews = parameters.Select(p => new ParameterPreview
+                {
+                    ParameterName = p,
+                    DisplayName = FormatDisplayName(p),
+                    SuggestedType = GuessParameterType(p),
+                    IsRequired = true
+                }).ToList();
+
+                return Ok(ApiResponse<List<ParameterPreview>>.SuccessResult(previews));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error previewing parameters");
+                return StatusCode(500, ApiResponse<List<ParameterPreview>>.ErrorResult("Internal server error"));
+            }
+        }
+        
+        private string FormatDisplayName(string parameterName)
+        {
+            // Convert camelCase/PascalCase to readable format
+            var result = System.Text.RegularExpressions.Regex.Replace(parameterName, @"([A-Z])", " $1").Trim();
+            
+            if (!string.IsNullOrEmpty(result))
+            {
+                result = char.ToUpper(result[0]) + result.Substring(1);
+            }
+            
+            return result;
+        }
+        
+        private string GuessParameterType(string parameterName)
+        {
+            var lowerName = parameterName.ToLower();
+            
+            if (lowerName.Contains("date") || lowerName.Contains("time"))
+                return "Date";
+            
+            if (lowerName.Contains("id") || lowerName.Contains("count") || lowerName.Contains("number"))
+                return "Number";
+            
+            if (lowerName.Contains("status") || lowerName.Contains("type") || lowerName.Contains("category"))
+                return "Dropdown";
+            
+            return "Text";
+        }
         
         [HttpPost("{id}/generate")]
         public async Task<ActionResult<ApiResponse<object>>> GenerateReport(int id, [FromBody] ReportGenerationRequest request)
@@ -250,6 +395,20 @@ namespace Custom_report.Controllers
     public class ReportGenerationRequest
     {
         public Dictionary<string, object> Parameters { get; set; } = new Dictionary<string, object>();
+    }
+
+    public class ParameterPreviewRequest
+    {
+        public string DataSourceType { get; set; }
+        public string DataSourceValue { get; set; }
+    }
+
+    public class ParameterPreview
+    {
+        public string ParameterName { get; set; }
+        public string DisplayName { get; set; }
+        public string SuggestedType { get; set; }
+        public bool IsRequired { get; set; }
     }
 }
 namespace Custom_report.Models
@@ -430,6 +589,7 @@ using Dapper;
 using System.Data;
 using System.Data.SqlClient;
 using Newtonsoft.Json;
+using System.Text.RegularExpressions;
 
 namespace Custom_report.Services
 {
@@ -441,6 +601,7 @@ namespace Custom_report.Services
         Task<int> CreateReportAsync(ReportDefinition report);
         Task<bool> UpdateReportAsync(ReportDefinition report);
         Task<bool> DeleteReportAsync(int reportId);
+        List<string> ExtractParametersFromSql(string sql);
     }
     
     public sealed class ReportService : IReportService
@@ -469,6 +630,24 @@ namespace Custom_report.Services
                 }
             }
             return _instance;
+        }
+        
+        public List<string> ExtractParametersFromSql(string sql)
+        {
+            if (string.IsNullOrEmpty(sql))
+                return new List<string>();
+
+            // Regex to find SQL parameters (@ParameterName)
+            var parameterRegex = new Regex(@"@([a-zA-Z_][a-zA-Z0-9_]*)", RegexOptions.IgnoreCase);
+            var matches = parameterRegex.Matches(sql);
+            
+            var parameters = new HashSet<string>();
+            foreach (Match match in matches)
+            {
+                parameters.Add(match.Groups[1].Value);
+            }
+            
+            return parameters.ToList();
         }
         
         public async Task<List<ReportDefinition>> GetAvailableReportsAsync(IEnumerable<string> userRoles)
@@ -719,43 +898,135 @@ namespace Custom_report.Services
             try
             {
                 using var connection = _databaseService.GetConnection();
+                using var transaction = connection.BeginTransaction();
                 
-                var sql = @"
-                    INSERT INTO SnehaReportDefinitions 
-                    (ReportName, Description, Category, DataSourceType, DataSourceValue, 
-                     Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
-                    OUTPUT INSERTED.ReportId
-                    VALUES 
-                    (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
-                     @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
-                
-                var reportId = await connection.QuerySingleAsync<int>(sql, report);
-                
-                // Insert parameters if any
-                if (report.ReportParameters?.Any() == true)
+                try
                 {
-                    var parameterSql = @"
-                        INSERT INTO SnehaReportParameters 
-                        (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
-                         IsRequired, ValidationRule, DropdownOptions)
+                    var sql = @"
+                        INSERT INTO SnehaReportDefinitions 
+                        (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+                         Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+                        OUTPUT INSERTED.ReportId
                         VALUES 
-                        (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
-                         @IsRequired, @ValidationRule, @DropdownOptions)";
+                        (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+                         @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
                     
-                    foreach (var param in report.ReportParameters)
+                    var reportId = await connection.QuerySingleAsync<int>(sql, report, transaction);
+                    
+                    // Auto-extract parameters from SQL/StoredProcedure
+                    List<string> detectedParams = new List<string>();
+                    
+                    if (report.DataSourceType?.ToLower() == "sql")
                     {
-                        param.ReportId = reportId;
-                        await connection.ExecuteAsync(parameterSql, param);
+                        detectedParams = ExtractParametersFromSql(report.DataSourceValue);
                     }
+                    else if (report.DataSourceType?.ToLower() == "storedprocedure")
+                    {
+                        // For stored procedures, we could potentially query sys.parameters
+                        // For now, we'll also use regex to extract from any example calls
+                        detectedParams = ExtractParametersFromSql(report.DataSourceValue);
+                    }
+                    
+                    // Create ReportParameter entries for detected parameters
+                    if (detectedParams.Any())
+                    {
+                        var parameterSql = @"
+                            INSERT INTO SnehaReportParameters 
+                            (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                             IsRequired, ValidationRule, DropdownOptions)
+                            VALUES 
+                            (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                             @IsRequired, @ValidationRule, @DropdownOptions)";
+                        
+                        foreach (var paramName in detectedParams)
+                        {
+                            var reportParam = new ReportParameter
+                            {
+                                ReportId = reportId,
+                                ParameterName = paramName,
+                                DisplayName = FormatDisplayName(paramName),
+                                ParameterType = GuessParameterType(paramName),
+                                DefaultValue = null,
+                                IsRequired = true, // Default to required
+                                ValidationRule = null,
+                                DropdownOptions = null
+                            };
+                            
+                            await connection.ExecuteAsync(parameterSql, reportParam, transaction);
+                        }
+                    }
+                    
+                    // Also insert any manually provided parameters
+                    if (report.ReportParameters?.Any() == true)
+                    {
+                        var parameterSql = @"
+                            INSERT INTO SnehaReportParameters 
+                            (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                             IsRequired, ValidationRule, DropdownOptions)
+                            VALUES 
+                            (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                             @IsRequired, @ValidationRule, @DropdownOptions)";
+                        
+                        foreach (var param in report.ReportParameters)
+                        {
+                            // Skip if we already added this parameter from auto-detection
+                            if (detectedParams.Contains(param.ParameterName))
+                                continue;
+                                
+                            param.ReportId = reportId;
+                            await connection.ExecuteAsync(parameterSql, param, transaction);
+                        }
+                    }
+                    
+                    transaction.Commit();
+                    _logger.LogInformation("Successfully created report {ReportId} with {ParamCount} auto-detected parameters", 
+                                         reportId, detectedParams.Count);
+                    return reportId;
                 }
-                
-                return reportId;
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
                 throw;
             }
+        }
+        
+        private string FormatDisplayName(string parameterName)
+        {
+            // Convert camelCase/PascalCase to readable format
+            // e.g., "PlanAlertID" becomes "Plan Alert ID"
+            var result = Regex.Replace(parameterName, @"([A-Z])", " $1").Trim();
+            
+            // Capitalize first letter
+            if (!string.IsNullOrEmpty(result))
+            {
+                result = char.ToUpper(result[0]) + result.Substring(1);
+            }
+            
+            return result;
+        }
+        
+        private string GuessParameterType(string parameterName)
+        {
+            var lowerName = parameterName.ToLower();
+            
+            // Common patterns for different types
+            if (lowerName.Contains("date") || lowerName.Contains("time"))
+                return "Date";
+            
+            if (lowerName.Contains("id") || lowerName.Contains("count") || lowerName.Contains("number"))
+                return "Number";
+            
+            if (lowerName.Contains("status") || lowerName.Contains("type") || lowerName.Contains("category"))
+                return "Dropdown";
+            
+            // Default to text
+            return "Text";
         }
         
         public async Task<bool> UpdateReportAsync(ReportDefinition report)
@@ -806,87 +1077,3 @@ namespace Custom_report.Services
     }
 }
 
-
-using Custom_report.Services;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo 
-    { 
-        Title = "Custom Report API", 
-        Version = "v1",
-        Description = "Dynamic Report Generation System"
-    });
-    
-    // Include XML comments if you have them
-    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath))
-    {
-        c.IncludeXmlComments(xmlPath);
-    }
-});
-
-// CORS configuration for React frontend
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowReactApp", policy =>
-    {
-        policy.WithOrigins("http://localhost:3000")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
-});
-
-// Register services using Singleton pattern
-builder.Services.AddSingleton<IDatabaseService>(provider =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    return DatabaseService.GetInstance(connectionString);
-});
-
-builder.Services.AddSingleton<IReportService>(provider =>
-{
-    var databaseService = provider.GetRequiredService<IDatabaseService>();
-    var logger = provider.GetRequiredService<ILogger<ReportService>>();
-    return ReportService.GetInstance(databaseService, logger);
-});
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Custom Report API V1");
-        c.RoutePrefix = string.Empty;
-    });
-}
-
-app.UseHttpsRedirection();
-app.UseCors("AllowReactApp");
-app.UseAuthentication();
-app.UseAuthorization();
-app.MapControllers();
-
-app.Run();{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=401KDITESSQL.es.ad.adp.com;Database=PES;User Id=dev401K;Password=adpadp;TrustServerCertificate=True;"
-    
-  },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "AllowedHosts": "*"
-}
