@@ -1,484 +1,373 @@
-# React Frontend for Custom Report System
+using System.Data;
+using System.Data.SqlClient;
 
-## 1. Create React App & Install Dependencies
+namespace Custom_report.Services
+{
+    public interface IDatabaseService
+    {
+        IDbConnection GetConnection();
+    }
+    
+    public sealed class DatabaseService : IDatabaseService
+    {
+        private static DatabaseService? _instance;
+        private static readonly object _lockObject = new object();
+        private readonly string _connectionString;
+        
+        private DatabaseService(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+        
+        public static DatabaseService GetInstance(string connectionString)
+        {
+            if (_instance == null)
+            {
+                lock (_lockObject)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new DatabaseService(connectionString);
+                    }
+                }
+            }
+            return _instance;
+        }
 
-```bash
-npx create-react-app custom-report-frontend
-cd custom-report-frontend
-npm install axios react-router-dom
-npm start
-```
+        public IDbConnection GetConnection()
+        {
+            var connection = new SqlConnection(_connectionString);
+            try 
+            {
+                connection.Open(); // Open the connection immediately
+                return connection;
+            }
+            catch (Exception)
+            {
+                connection.Dispose();
+                throw;
+            }
+        }
+    }
+}
 
-## 2. Project Structure
-```
-src/
-├── components/
-│   ├── ReportList.js
-│   ├── ReportViewer.js
-│   ├── ReportForm.js
-│   └── Layout.js
-├── services/
-│   └── reportService.js
-├── styles/
-│   ├── App.css
-│   ├── ReportList.css
-│   ├── ReportViewer.css
-│   └── ReportForm.css
-├── App.js
-└── index.js
-```
 
-## 3. API Service (src/services/reportService.js)
 
-```javascript
-import axios from 'axios';
 
-const API_BASE_URL = 'https://localhost:7138/api'; // Update with your actual backend URL
 
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
+
+
+
+
+
+
+public async Task<int> CreateReportAsync(ReportDefinition report)
+{
+    try
+    {
+        using var connection = _databaseService.GetConnection();
+        // Connection is already opened in GetConnection()
+        
+        using var transaction = connection.BeginTransaction();
+        
+        try
+        {
+            var sql = @"
+                INSERT INTO SnehaReportDefinitions 
+                (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+                 Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+                OUTPUT INSERTED.ReportId
+                VALUES 
+                (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+                 @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
+            
+            // Use Dapper with the transaction
+            var reportId = await connection.QuerySingleAsync<int>(sql, new {
+                ReportName = report.ReportName,
+                Description = report.Description ?? "",
+                Category = report.Category ?? "",
+                DataSourceType = report.DataSourceType,
+                DataSourceValue = report.DataSourceValue,
+                Parameters = report.Parameters ?? "",
+                LayoutSettings = report.LayoutSettings ?? "",
+                AccessRoles = report.AccessRoles ?? "[]",
+                IsActive = report.IsActive
+            }, transaction);
+            
+            // Auto-extract parameters from SQL/StoredProcedure
+            List<string> detectedParams = new List<string>();
+            
+            if (report.DataSourceType?.ToLower() == "sql")
+            {
+                detectedParams = ExtractParametersFromSql(report.DataSourceValue);
+            }
+            else if (report.DataSourceType?.ToLower() == "storedprocedure")
+            {
+                detectedParams = ExtractParametersFromSql(report.DataSourceValue);
+            }
+            
+            // Create ReportParameter entries for detected parameters
+            if (detectedParams.Any())
+            {
+                var parameterSql = @"
+                    INSERT INTO SnehaReportParameters 
+                    (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                     IsRequired, ValidationRule, DropdownOptions)
+                    VALUES 
+                    (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                     @IsRequired, @ValidationRule, @DropdownOptions)";
+                
+                foreach (var paramName in detectedParams)
+                {
+                    await connection.ExecuteAsync(parameterSql, new {
+                        ReportId = reportId,
+                        ParameterName = paramName,
+                        DisplayName = FormatDisplayName(paramName),
+                        ParameterType = GuessParameterType(paramName),
+                        DefaultValue = (string?)null,
+                        IsRequired = true,
+                        ValidationRule = (string?)null,
+                        DropdownOptions = (string?)null
+                    }, transaction);
+                }
+            }
+            
+            // Also insert any manually provided parameters
+            if (report.ReportParameters?.Any() == true)
+            {
+                var parameterSql = @"
+                    INSERT INTO SnehaReportParameters 
+                    (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                     IsRequired, ValidationRule, DropdownOptions)
+                    VALUES 
+                    (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                     @IsRequired, @ValidationRule, @DropdownOptions)";
+                
+                foreach (var param in report.ReportParameters)
+                {
+                    // Skip if we already added this parameter from auto-detection
+                    if (detectedParams.Contains(param.ParameterName))
+                        continue;
+                    
+                    await connection.ExecuteAsync(parameterSql, new {
+                        ReportId = reportId,
+                        ParameterName = param.ParameterName,
+                        DisplayName = param.DisplayName,
+                        ParameterType = param.ParameterType,
+                        DefaultValue = param.DefaultValue,
+                        IsRequired = param.IsRequired,
+                        ValidationRule = param.ValidationRule,
+                        DropdownOptions = param.DropdownOptions
+                    }, transaction);
+                }
+            }
+            
+            transaction.Commit();
+            _logger.LogInformation("Successfully created report {ReportId} with {ParamCount} auto-detected parameters", 
+                                 reportId, detectedParams.Count);
+            return reportId;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+        throw;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=YOUR_SERVER;Database=YOUR_DATABASE;Integrated Security=true;Connection Timeout=60;Command Timeout=300;TrustServerCertificate=true;"
   },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+
+
+
+
+
+
+
+
+
+using Custom_report.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Get connection string
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+}
+
+// Register services as singletons to use singleton pattern properly
+builder.Services.AddSingleton<IDatabaseService>(provider => 
+    DatabaseService.GetInstance(connectionString));
+
+builder.Services.AddSingleton<IReportService>(provider =>
+{
+    var databaseService = provider.GetRequiredService<IDatabaseService>();
+    var logger = provider.GetRequiredService<ILogger<ReportService>>();
+    return ReportService.GetInstance(databaseService, logger);
 });
 
-export const reportService = {
-  // Get all available reports
-  getAvailableReports: async () => {
-    try {
-      const response = await apiClient.get('/reports');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-      throw error;
-    }
-  },
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(builder =>
+    {
+        builder.AllowAnyOrigin()
+               .AllowAnyHeader()
+               .AllowAnyMethod();
+    });
+});
 
-  // Get specific report definition
-  getReportDefinition: async (reportId) => {
-    try {
-      const response = await apiClient.get(`/reports/${reportId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching report definition:', error);
-      throw error;
-    }
-  },
+var app = builder.Build();
 
-  // Generate report data
-  generateReport: async (reportId, parameters = {}) => {
-    try {
-      const response = await apiClient.post(`/reports/${reportId}/generate`, parameters);
-      return response.data;
-    } catch (error) {
-      console.error('Error generating report:', error);
-      throw error;
-    }
-  },
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
-  // Create new report
-  createReport: async (reportData) => {
-    try {
-      const response = await apiClient.post('/reports', reportData);
-      return response.data;
-    } catch (error) {
-      console.error('Error creating report:', error);
-      throw error;
-    }
-  },
+app.UseCors();
+app.UseAuthorization();
+app.MapControllers();
 
-  // Update existing report
-  updateReport: async (reportId, reportData) => {
-    try {
-      const response = await apiClient.put(`/reports/${reportId}`, reportData);
-      return response.data;
-    } catch (error) {
-      console.error('Error updating report:', error);
-      throw error;
-    }
-  },
+// Test database connection on startup
+try
+{
+    var dbService = app.Services.GetRequiredService<IDatabaseService>();
+    using var connection = dbService.GetConnection();
+    Console.WriteLine("✅ Database connection successful!");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Database connection failed: {ex.Message}");
+}
 
-  // Delete report
-  deleteReport: async (reportId) => {
-    try {
-      const response = await apiClient.delete(`/reports/${reportId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error deleting report:', error);
-      throw error;
-    }
-  }
-};
-```
+app.Run();
 
-## 4. Layout Component (src/components/Layout.js)
 
-```javascript
-import React from 'react';
-import '../styles/App.css';
 
-const Layout = ({ children }) => {
-  return (
-    <div className="app">
-      <header className="app-header">
-        <h1>📊 Custom Report System</h1>
-        <nav>
-          <a href="/">Reports</a>
-          <a href="/create">Create Report</a>
-        </nav>
-      </header>
-      <main className="app-main">
-        {children}
-      </main>
-      <footer className="app-footer">
-        <p>&copy; 2025 Custom Report System</p>
-      </footer>
-    </div>
-  );
-};
 
-export default Layout;
-```
 
-## 5. Report List Component (src/components/ReportList.js)
 
-```javascript
-import React, { useState, useEffect } from 'react';
-import { reportService } from '../services/reportService';
-import '../styles/ReportList.css';
 
-const ReportList = ({ onSelectReport }) => {
-  const [reports, setReports] = useState([]);
-  const [filteredReports, setFilteredReports] = useState([]);
-  const [categories, setCategories] = useState(['All']);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadReports();
-  }, []);
 
-  const loadReports = async () => {
-    try {
-      setLoading(true);
-      const response = await reportService.getAvailableReports();
-      if (response.success) {
-        setReports(response.data);
-        setFilteredReports(response.data);
-        extractCategories(response.data);
-      } else {
-        setError(response.message);
-      }
-    } catch (err) {
-      setError('Failed to load reports');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const extractCategories = (reportsList) => {
-    const uniqueCategories = ['All', ...new Set(reportsList.map(r => r.category).filter(Boolean))];
-    setCategories(uniqueCategories);
-  };
-
-  const filterByCategory = (category) => {
-    setSelectedCategory(category);
-    if (category === 'All') {
-      setFilteredReports(reports);
-    } else {
-      setFilteredReports(reports.filter(r => r.category === category));
-    }
-  };
-
-  if (loading) return <div className="loading">Loading reports...</div>;
-  if (error) return <div className="error">Error: {error}</div>;
-
-  return (
-    <div className="report-list">
-      <h2>Available Reports</h2>
-      
-      <div className="category-filter">
-        <label>Filter by Category:</label>
-        <div className="category-buttons">
-          {categories.map(category => (
-            <button
-              key={category}
-              className={`category-btn ${category === selectedCategory ? 'active' : ''}`}
-              onClick={() => filterByCategory(category)}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="reports-grid">
-        {filteredReports.map(report => (
-          <div key={report.reportId} className="report-card">
-            <div className="report-card-header">
-              <h3>{report.reportName}</h3>
-              <span className="report-category">{report.category}</span>
-            </div>
-            <div className="report-card-body">
-              <p>{report.description}</p>
-              <div className="report-meta">
-                <span className="data-source">{report.dataSourceType}</span>
-                <span className="created-date">
-                  {new Date(report.createdDate).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-            <div className="report-card-footer">
-              <button 
-                className="btn btn-primary"
-                onClick={() => onSelectReport(report)}
-              >
-                Run Report
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {filteredReports.length === 0 && (
-        <div className="no-reports">
-          <p>No reports available for the selected category.</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default ReportList;
-```
-
-## 6. Report Viewer Component (src/components/ReportViewer.js)
-
-```javascript
-import React, { useState, useEffect } from 'react';
-import { reportService } from '../services/reportService';
-import '../styles/ReportViewer.css';
-
-const ReportViewer = ({ selectedReport, onBack }) => {
-  const [reportDefinition, setReportDefinition] = useState(null);
-  const [reportData, setReportData] = useState(null);
-  const [parameters, setParameters] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (selectedReport) {
-      loadReportDefinition();
-    }
-  }, [selectedReport]);
-
-  const loadReportDefinition = async () => {
-    try {
-      const response = await reportService.getReportDefinition(selectedReport.reportId);
-      if (response.success) {
-        setReportDefinition(response.data);
-        // Initialize parameters with default values
-        const defaultParams = {};
-        if (response.data.reportParameters) {
-          response.data.reportParameters.forEach(param => {
-            defaultParams[param.parameterName] = param.defaultValue || '';
-          });
+[HttpPost]
+public async Task<ActionResult<ApiResponse<int>>> CreateReport([FromBody] ReportDefinition report)
+{
+    try
+    {
+        _logger.LogInformation("Creating report: {ReportName}", report?.ReportName);
+        
+        if (report == null)
+        {
+            return BadRequest(ApiResponse<int>.ErrorResult("Report data is required"));
         }
-        setParameters(defaultParams);
-      } else {
-        setError(response.message);
-      }
-    } catch (err) {
-      setError('Failed to load report definition');
-    }
-  };
-
-  const generateReport = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await reportService.generateReport(selectedReport.reportId, parameters);
-      if (response.success) {
-        setReportData(response.data);
-      } else {
-        setError(response.message);
-      }
-    } catch (err) {
-      setError('Failed to generate report');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleParameterChange = (paramName, value) => {
-    setParameters(prev => ({
-      ...prev,
-      [paramName]: value
-    }));
-  };
-
-  const renderParameterInput = (param) => {
-    const value = parameters[param.parameterName] || '';
-    
-    switch (param.parameterType.toLowerCase()) {
-      case 'text':
-        return (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
-            required={param.isRequired}
-            className="form-input"
-          />
-        );
-      case 'number':
-        return (
-          <input
-            type="number"
-            value={value}
-            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
-            required={param.isRequired}
-            className="form-input"
-          />
-        );
-      case 'date':
-        return (
-          <input
-            type="date"
-            value={value}
-            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
-            required={param.isRequired}
-            className="form-input"
-          />
-        );
-      case 'dropdown':
-        return (
-          <select
-            value={value}
-            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
-            required={param.isRequired}
-            className="form-select"
-          >
-            <option value="">Select...</option>
-            {param.dropdownOptionsList?.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.display}
-              </option>
-            ))}
-          </select>
-        );
-      default:
-        return (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => handleParameterChange(param.parameterName, e.target.value)}
-            required={param.isRequired}
-            className="form-input"
-          />
+        
+        // Validate required fields
+        var validationErrors = new List<string>();
+        
+        if (string.IsNullOrWhiteSpace(report.ReportName))
+            validationErrors.Add("Report name is required");
+            
+        if (string.IsNullOrWhiteSpace(report.DataSourceType))
+            validationErrors.Add("Data source type is required");
+            
+        if (string.IsNullOrWhiteSpace(report.DataSourceValue))
+            validationErrors.Add("Data source value is required");
+        
+        if (validationErrors.Any())
+        {
+            return BadRequest(ApiResponse<int>.ErrorResult("Validation failed", validationErrors));
+        }
+        
+        // Log the data being processed
+        _logger.LogInformation("Report data: Name={ReportName}, Type={DataSourceType}, AccessRoles={AccessRoles}", 
+            report.ReportName, report.DataSourceType, report.AccessRoles);
+        
+        if (!ModelState.IsValid)
+        {
+            var modelErrors = ModelState.Values
+                .SelectMany(v => v.Errors.Select(e => e.ErrorMessage))
+                .ToList();
+            return BadRequest(ApiResponse<int>.ErrorResult("Invalid model", modelErrors));
+        }
+        
+        var reportId = await _reportService.CreateReportAsync(report);
+        
+        _logger.LogInformation("Successfully created report with ID: {ReportId}", reportId);
+        
+        return CreatedAtAction(
+            nameof(GetReportDefinition), 
+            new { id = reportId }, 
+            ApiResponse<int>.SuccessResult(reportId, "Report created successfully")
         );
     }
-  };
+    catch (System.Data.SqlClient.SqlException sqlEx)
+    {
+        _logger.LogError(sqlEx, "Database error creating report: {ReportName}", report?.ReportName);
+        
+        if (sqlEx.Message.Contains("timeout") || sqlEx.Message.Contains("connection"))
+        {
+            return StatusCode(503, ApiResponse<int>.ErrorResult("Database connection issue. Please try again."));
+        }
+        
+        return StatusCode(500, ApiResponse<int>.ErrorResult("Database error occurred"));
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error creating report: {ReportName}", report?.ReportName);
+        return StatusCode(500, ApiResponse<int>.ErrorResult($"Internal server error: {ex.Message}"));
+    }
+}
 
-  if (!reportDefinition) {
-    return <div className="loading">Loading report...</div>;
-  }
 
-  return (
-    <div className="report-viewer">
-      <div className="report-header">
-        <button className="btn btn-secondary" onClick={onBack}>
-          ← Back to Reports
-        </button>
-        <div className="report-title">
-          <h2>{reportDefinition.reportName}</h2>
-          <p>{reportDefinition.description}</p>
-        </div>
-      </div>
 
-      {reportDefinition.reportParameters && reportDefinition.reportParameters.length > 0 && (
-        <div className="parameters-section">
-          <h3>Parameters</h3>
-          <div className="parameters-form">
-            {reportDefinition.reportParameters.map(param => (
-              <div key={param.parameterId} className="parameter-field">
-                <label htmlFor={param.parameterName}>
-                  {param.displayName}
-                  {param.isRequired && <span className="required">*</span>}
-                </label>
-                {renderParameterInput(param)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      <div className="actions-section">
-        <button 
-          className="btn btn-primary"
-          onClick={generateReport}
-          disabled={loading}
-        >
-          {loading ? 'Generating...' : 'Generate Report'}
-        </button>
-      </div>
 
-      {error && (
-        <div className="error-message">
-          {error}
-        </div>
-      )}
 
-      {reportData && (
-        <div className="report-data-section">
-          <div className="report-actions">
-            <h3>Report Results</h3>
-            <div className="export-buttons">
-              <button className="btn btn-outline">Export Excel</button>
-              <button className="btn btn-outline">Export PDF</button>
-              <button className="btn btn-outline">Export CSV</button>
-            </div>
-          </div>
-          
-          <div className="report-table-container">
-            <table className="report-table">
-              <thead>
-                <tr>
-                  {reportData.columns?.map(column => (
-                    <th key={column.Name}>{column.Name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {reportData.rows?.map((row, index) => (
-                  <tr key={index}>
-                    {reportData.columns?.map(column => (
-                      <td key={column.Name}>{row[column.Name]}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          {(!reportData.rows || reportData.rows.length === 0) && (
-            <div className="no-data">
-              <p>No data found for the given parameters.</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
 
-export default ReportViewer;
-```
+//////////////////////////////////////////////////////////////////////THSI THE ITE HDHAIDYDHOIDH 
 
-## 7. Report Form Component (src/components/ReportForm.js)
 
-```javascript
+
+
+
+
+
+
 import React, { useState } from 'react';
 import { reportService } from '../services/reportService';
 import '../styles/ReportForm.css';
@@ -493,9 +382,12 @@ const ReportForm = ({ onBack, onSave }) => {
     accessRoles: '',
     isActive: true
   });
+  const [detectedParameters, setDetectedParameters] = useState([]);
+  const [showParameterPreview, setShowParameterPreview] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -503,31 +395,127 @@ const ReportForm = ({ onBack, onSave }) => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    
+    // Clear parameter preview when changing data source
+    if (name === 'dataSourceValue' || name === 'dataSourceType') {
+      setDetectedParameters([]);
+      setShowParameterPreview(false);
+    }
+  };
+
+  const previewParameters = async () => {
+    if (!formData.dataSourceValue.trim()) {
+      setError('Please enter a data source value first');
+      return;
+    }
+
+    try {
+      setPreviewLoading(true);
+      setError(null);
+
+      const response = await reportService.previewParameters({
+        dataSourceType: formData.dataSourceType,
+        dataSourceValue: formData.dataSourceValue
+      });
+
+      if (response.success) {
+        setDetectedParameters(response.data || []);
+        setShowParameterPreview(true);
+        console.log('Detected parameters:', response.data);
+      } else {
+        setError(response.message || 'Failed to preview parameters');
+      }
+    } catch (err) {
+      console.error('Error previewing parameters:', err);
+      setError('Failed to preview parameters');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const updateParameterProperty = (index, property, value) => {
+    setDetectedParameters(prev => {
+      const updated = [...prev];
+      updated[index][property] = value;
+      return updated;
+    });
+  };
+
+  const removeParameter = (index) => {
+    setDetectedParameters(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addParameter = () => {
+    setDetectedParameters(prev => [...prev, {
+      parameterName: '',
+      displayName: '',
+      suggestedType: 'Text',
+      isRequired: false
+    }]);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Form submitted with data:', formData);
+    
     try {
       setLoading(true);
       setError(null);
       
+      // Format access roles properly
+      let accessRolesFormatted = '[]';
+      if (formData.accessRoles && formData.accessRoles.trim()) {
+        const rolesArray = formData.accessRoles
+          .split(',')
+          .map(role => role.trim())
+          .filter(role => role.length > 0);
+        accessRolesFormatted = `["${rolesArray.join('","')}"]`;
+      }
+      
+      // 🔥 FIX: Use PascalCase property names to match C# model exactly
       const reportData = {
-        ...formData,
-        accessRoles: formData.accessRoles ? `["${formData.accessRoles.split(',').map(r => r.trim()).join('","')}"]` : '[]'
+        ReportName: formData.reportName.trim(),
+        Description: formData.description?.trim() || "",
+        Category: formData.category?.trim() || "",
+        DataSourceType: formData.dataSourceType,
+        DataSourceValue: formData.dataSourceValue.trim(),
+        Parameters: "", 
+        LayoutSettings: "", 
+        AccessRoles: accessRolesFormatted,
+        IsActive: formData.isActive,
+        // Include detected parameters if any
+        ReportParameters: detectedParameters.map(param => ({
+          ParameterName: param.parameterName,
+          DisplayName: param.displayName,
+          ParameterType: param.suggestedType,
+          DefaultValue: param.defaultValue || null,
+          IsRequired: param.isRequired,
+          ValidationRule: null,
+          DropdownOptions: null
+        }))
       };
       
-      const response = await reportService.createReport(reportData);
+      console.log('Final report data being sent:', reportData);
+      console.log('AccessRoles formatted as:', accessRolesFormatted);
+      console.log('Parameters to be created:', reportData.ReportParameters);
       
-      if (response.success) {
+      const response = await reportService.createReport(reportData);
+      console.log('Response received:', response);
+      
+      if (response && response.success) {
+        console.log('Report created successfully!');
         setSuccess(true);
         setTimeout(() => {
           onSave();
         }, 2000);
       } else {
-        setError(response.message);
+        console.error('Report creation failed:', response);
+        setError(response?.message || 'Failed to create report');
       }
     } catch (err) {
-      setError('Failed to create report');
+      console.error('Exception in handleSubmit:', err);
+      console.error('Error response:', err.response);
+      setError(err.response?.data?.message || err.message || 'Failed to create report');
     } finally {
       setLoading(false);
     }
@@ -537,6 +525,7 @@ const ReportForm = ({ onBack, onSave }) => {
     return (
       <div className="success-message">
         <h2>✅ Report Created Successfully!</h2>
+        <p>Parameters have been automatically detected and configured.</p>
         <p>Redirecting back to reports list...</p>
       </div>
     );
@@ -562,6 +551,7 @@ const ReportForm = ({ onBack, onSave }) => {
             onChange={handleInputChange}
             required
             className="form-input"
+            maxLength="100"
           />
         </div>
 
@@ -574,6 +564,7 @@ const ReportForm = ({ onBack, onSave }) => {
             onChange={handleInputChange}
             rows="3"
             className="form-textarea"
+            maxLength="500"
           />
         </div>
 
@@ -587,6 +578,7 @@ const ReportForm = ({ onBack, onSave }) => {
               value={formData.category}
               onChange={handleInputChange}
               className="form-input"
+              maxLength="50"
             />
           </div>
 
@@ -626,7 +618,104 @@ const ReportForm = ({ onBack, onSave }) => {
               'SELECT * FROM TableName WHERE Column = @Parameter'
             }
           />
+          {(formData.dataSourceType === 'SQL' || formData.dataSourceType === 'StoredProcedure') && (
+            <div className="parameter-preview-section">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={previewParameters}
+                disabled={previewLoading || !formData.dataSourceValue.trim()}
+              >
+                {previewLoading ? 'Detecting...' : '🔍 Detect Parameters'}
+              </button>
+              <small className="form-help">
+                Click to automatically detect parameters from your SQL query or stored procedure
+              </small>
+            </div>
+          )}
         </div>
+
+        {showParameterPreview && (
+          <div className="detected-parameters-section">
+            <h3>Detected Parameters</h3>
+            {detectedParameters.length === 0 ? (
+              <p className="no-parameters">No parameters detected in your query.</p>
+            ) : (
+              <>
+                <p className="parameters-info">
+                  Found {detectedParameters.length} parameter(s). You can modify the settings below:
+                </p>
+                {detectedParameters.map((param, index) => (
+                  <div key={index} className="parameter-config">
+                    <div className="parameter-header">
+                      <strong>@{param.parameterName}</strong>
+                      <button
+                        type="button"
+                        className="btn-remove"
+                        onClick={() => removeParameter(index)}
+                        title="Remove parameter"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="parameter-fields">
+                      <div className="form-group">
+                        <label>Display Name</label>
+                        <input
+                          type="text"
+                          value={param.displayName}
+                          onChange={(e) => updateParameterProperty(index, 'displayName', e.target.value)}
+                          className="form-input"
+                          placeholder="How this parameter appears to users"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Parameter Type</label>
+                        <select
+                          value={param.suggestedType}
+                          onChange={(e) => updateParameterProperty(index, 'suggestedType', e.target.value)}
+                          className="form-select"
+                        >
+                          <option value="Text">Text</option>
+                          <option value="Number">Number</option>
+                          <option value="Date">Date</option>
+                          <option value="Dropdown">Dropdown</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Default Value</label>
+                        <input
+                          type="text"
+                          value={param.defaultValue || ''}
+                          onChange={(e) => updateParameterProperty(index, 'defaultValue', e.target.value)}
+                          className="form-input"
+                          placeholder="Optional default value"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={param.isRequired}
+                            onChange={(e) => updateParameterProperty(index, 'isRequired', e.target.checked)}
+                          />
+                          Required Parameter
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={addParameter}
+                >
+                  + Add Manual Parameter
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="form-group">
           <label htmlFor="accessRoles">Access Roles (comma separated)</label>
@@ -639,6 +728,7 @@ const ReportForm = ({ onBack, onSave }) => {
             className="form-input"
             placeholder="Admin, HR, Sales"
           />
+          <small className="form-help">Enter roles separated by commas (e.g., Admin, HR, Sales)</small>
         </div>
 
         <div className="form-group">
@@ -655,7 +745,7 @@ const ReportForm = ({ onBack, onSave }) => {
 
         {error && (
           <div className="error-message">
-            {error}
+            <strong>Error:</strong> {error}
           </div>
         )}
 
@@ -673,744 +763,65 @@ const ReportForm = ({ onBack, onSave }) => {
 };
 
 export default ReportForm;
-```
 
-## 8. Main App Component (src/App.js)
 
-```javascript
-import React, { useState } from 'react';
-import Layout from './components/Layout';
-import ReportList from './components/ReportList';
-import ReportViewer from './components/ReportViewer';
-import ReportForm from './components/ReportForm';
-import './styles/App.css';
 
-function App() {
-  const [currentView, setCurrentView] = useState('list'); // 'list', 'viewer', 'form'
-  const [selectedReport, setSelectedReport] = useState(null);
 
-  const handleSelectReport = (report) => {
-    setSelectedReport(report);
-    setCurrentView('viewer');
-  };
 
-  const handleBackToList = () => {
-    setCurrentView('list');
-    setSelectedReport(null);
-  };
 
-  const handleCreateReport = () => {
-    setCurrentView('form');
-  };
 
-  const handleSaveReport = () => {
-    setCurrentView('list');
-  };
 
-  const renderCurrentView = () => {
-    switch (currentView) {
-      case 'viewer':
-        return (
-          <ReportViewer
-            selectedReport={selectedReport}
-            onBack={handleBackToList}
-          />
-        );
-      case 'form':
-        return (
-          <ReportForm
-            onBack={handleBackToList}
-            onSave={handleSaveReport}
-          />
-        );
-      default:
-        return (
-          <div>
-            <div className="page-header">
-              <h2>Reports Dashboard</h2>
-              <button className="btn btn-primary" onClick={handleCreateReport}>
-                + Create New Report
-              </button>
-            </div>
-            <ReportList onSelectReport={handleSelectReport} />
-          </div>
-        );
-    }
-  };
 
-  return (
-    <Layout>
-      {renderCurrentView()}
-    </Layout>
-  );
-}
 
-export default App;
-```
+using System.Data;
+using System.Data.SqlClient;
 
-## 9. CSS Styles
-
-### App.css (src/styles/App.css)
-```css
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  background-color: #f5f5f5;
-  color: #333;
-  line-height: 1.6;
-}
-
-.app {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.app-header h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.app-header nav {
-  display: flex;
-  gap: 1rem;
-}
-
-.app-header nav a {
-  color: white;
-  text-decoration: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-}
-
-.app-header nav a:hover {
-  background-color: rgba(255,255,255,0.2);
-}
-
-.app-main {
-  flex: 1;
-  padding: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.app-footer {
-  background-color: #333;
-  color: white;
-  text-align: center;
-  padding: 1rem;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-
-.page-header h2 {
-  color: #333;
-  font-size: 2rem;
-}
-
-/* Button Styles */
-.btn {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-  display: inline-block;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-  background-color: #4f46e5;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #4338ca;
-}
-
-.btn-primary:disabled {
-  background-color: #9ca3af;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background-color: #6b7280;
-  color: white;
-}
-
-.btn-secondary:hover {
-  background-color: #4b5563;
-}
-
-.btn-outline {
-  background-color: transparent;
-  color: #4f46e5;
-  border: 1px solid #4f46e5;
-}
-
-.btn-outline:hover {
-  background-color: #4f46e5;
-  color: white;
-}
-
-/* Form Styles */
-.form-input, .form-select, .form-textarea {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.875rem;
-}
-
-.form-input:focus, .form-select:focus, .form-textarea:focus {
-  outline: none;
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-}
-
-/* Loading and Error States */
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: #6b7280;
-}
-
-.error {
-  background-color: #fef2f2;
-  color: #dc2626;
-  padding: 1rem;
-  border-radius: 4px;
-  border: 1px solid #fecaca;
-}
-
-.error-message {
-  background-color: #fef2f2;
-  color: #dc2626;
-  padding: 0.75rem;
-  border-radius: 4px;
-  border: 1px solid #fecaca;
-  margin: 1rem 0;
-}
-
-.success-message {
-  background-color: #f0fdf4;
-  color: #16a34a;
-  padding: 2rem;
-  border-radius: 4px;
-  border: 1px solid #bbf7d0;
-  text-align: center;
-}
-```
-
-### ReportList.css (src/styles/ReportList.css)
-```css
-.report-list {
-  max-width: 100%;
-}
-
-.report-list h2 {
-  margin-bottom: 1.5rem;
-  color: #1f2937;
-}
-
-.category-filter {
-  margin-bottom: 2rem;
-}
-
-.category-filter label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: #374151;
-}
-
-.category-buttons {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.category-btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  background-color: white;
-  color: #374151;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.category-btn:hover {
-  background-color: #f3f4f6;
-}
-
-.category-btn.active {
-  background-color: #4f46e5;
-  color: white;
-  border-color: #4f46e5;
-}
-
-.reports-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
-.report-card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.report-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.report-card-header {
-  padding: 1rem;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.report-card-header h3 {
-  margin: 0;
-  color: #1f2937;
-  font-size: 1.125rem;
-  flex: 1;
-}
-
-.report-category {
-  background-color: #dbeafe;
-  color: #1e40af;
-  padding: 0.25rem 0.5rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.report-card-body {
-  padding: 1rem;
-}
-
-.report-card-body p {
-  color: #6b7280;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-}
-
-.report-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
-  color: #9ca3af;
-}
-
-.data-source {
-  background-color: #f3f4f6;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.report-card-footer {
-  padding: 1rem;
-  background-color: #f9fafb;
-  border-top: 1px solid #e5e7eb;
-}
-
-.report-card-footer .btn {
-  width: 100%;
-}
-
-.no-reports {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 3rem;
-  color: #6b7280;
-}
-```
-
-### ReportViewer.css (src/styles/ReportViewer.css)
-```css
-.report-viewer {
-  max-width: 100%;
-}
-
-.report-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.report-title {
-  flex: 1;
-}
-
-.report-title h2 {
-  margin: 0 0 0.5rem 0;
-  color: #1f2937;
-  font-size: 1.875rem;
-}
-
-.report-title p {
-  color: #6b7280;
-  margin: 0;
-}
-
-.parameters-section {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  margin-bottom: 2rem;
-}
-
-.parameters-section h3 {
-  margin: 0 0 1rem 0;
-  color: #1f2937;
-}
-
-.parameters-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
-}
-
-.parameter-field {
-  display: flex;
-  flex-direction: column;
-}
-
-.parameter-field label {
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: #374151;
-}
-
-.required {
-  color: #dc2626;
-  margin-left: 0.25rem;
-}
-
-.actions-section {
-  margin-bottom: 2rem;
-}
-
-.report-data-section {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-}
-
-.report-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
-  background-color: #f9fafb;
-}
-
-.report-actions h3 {
-  margin: 0;
-  color: #1f2937;
-}
-
-.export-buttons {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.export-buttons .btn {
-  font-size: 0.75rem;
-  padding: 0.375rem 0.75rem;
-}
-
-.report-table-container {
-  overflow-x: auto;
-  max-height: 600px;
-  overflow-y: auto;
-}
-
-.report-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.report-table th {
-  background-color: #f3f4f6;
-  color: #374151;
-  font-weight: 600;
-  padding: 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid #d1d5db;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.report-table td {
-  padding: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-  color: #1f2937;
-}
-
-.report-table tbody tr:hover {
-  background-color: #f9fafb;
-}
-
-.no-data {
-  padding: 3rem;
-  text-align: center;
-  color: #6b7280;
-}
-```
-
-### ReportForm.css (src/styles/ReportForm.css)
-```css
-.report-form {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.form-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.form-header h2 {
-  margin: 0;
-  color: #1f2937;
-  font-size: 1.875rem;
-}
-
-.form {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: #374151;
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 100px;
-}
-
-.checkbox-label {
-  display: flex !important;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: auto;
-  margin: 0;
-}
-
-.form-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
-}
-
-.success-message h2 {
-  color: #16a34a;
-  margin-bottom: 1rem;
-}
-
-@media (max-width: 768px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-  
-  .form-actions {
-    flex-direction: column;
-  }
-  
-  .export-buttons {
-    flex-direction: column;
-  }
-  
-  .category-buttons {
-    justify-content: center;
-  }
-  
-  .reports-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .parameters-form {
-    grid-template-columns: 1fr;
-  }
-  
-  .report-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .report-actions {
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .page-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: stretch;
-  }
-}
-```
-
-## 10. Package.json dependencies
-```json
+namespace Custom_report.Services
 {
-  "name": "custom-report-frontend",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "@testing-library/jest-dom": "^5.16.4",
-    "@testing-library/react": "^13.3.0",
-    "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.4.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.11.0",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  }
+    public interface IDatabaseService
+    {
+        IDbConnection GetConnection();
+    }
+    
+    public sealed class DatabaseService : IDatabaseService
+    {
+        private static DatabaseService? _instance;
+        private static readonly object _lockObject = new object();
+        private readonly string _connectionString;
+        
+        private DatabaseService(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+        
+        public static DatabaseService GetInstance(string connectionString)
+        {
+            if (_instance == null)
+            {
+                lock (_lockObject)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new DatabaseService(connectionString);
+                    }
+                }
+            }
+            return _instance;
+        }
+
+        public IDbConnection GetConnection()
+        {
+            var connection = new SqlConnection(_connectionString);
+            try 
+            {
+                connection.Open(); // Open the connection immediately
+                return connection;
+            }
+            catch (Exception)
+            {
+                connection.Dispose();
+                throw;
+            }
+        }
+    }
 }
-```
-
-## 11. Setup Instructions
-
-1. **Create React App:**
-```bash
-npx create-react-app custom-report-frontend
-cd custom-report-frontend
-```
-
-2. **Install Dependencies:**
-```bash
-npm install axios react-router-dom
-```
-
-3. **Create Folder Structure:**
-```bash
-mkdir src/components src/services src/styles
-```
-
-4. **Copy all the files** into their respective folders
-
-5. **Update API URL** in `src/services/reportService.js`:
-   - Change `API_BASE_URL` to your actual backend URL (check your backend console for the port)
-
-6. **Start the React App:**
-```bash
-npm start
-```
-
-## 12. Features Included:
-
-✅ **Reports Dashboard** - View all available reports with category filtering
-✅ **Report Execution** - Run reports with parameters
-✅ **Dynamic Forms** - Auto-generated parameter forms based on report definition
-✅ **Data Display** - Clean table format for report results
-✅ **Create Reports** - Simple form to create new reports
-✅ **Responsive Design** - Works on mobile and desktop
-✅ **Error Handling** - Proper error messages and loading states
-✅ **Simple Styling** - Clean, professional CSS without external libraries
-
-## 13. How to Test:
-
-1. Make sure your backend is running
-2. Start the React frontend
-3. Go to `http://localhost:3000`
-4. You should see the reports dashboard
-5. Click "Run Report" on any report to test the viewer
-6. Click "Create New Report" to test the form
-
-The frontend will automatically connect to your backend API and display the reports from your database!
