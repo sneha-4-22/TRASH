@@ -1,0 +1,137 @@
+// Add this field after the dataSourceValue textarea in your ReportForm.js
+
+<div className="form-group">
+  <label htmlFor="parameters">Parameters (comma separated)</label>
+  <input
+    type="text"
+    id="parameters"
+    name="parameters"
+    value={formData.parameters}
+    onChange={handleInputChange}
+    className="form-input"
+    placeholder="PlanNum,ReportID,PlanAlertID"
+  />
+  <small className="form-help">Enter parameter names separated by commas (e.g., PlanNum, ReportID, PlanAlertID)</small>
+</div>
+
+
+
+const [formData, setFormData] = useState({
+  reportName: '',
+  description: '',
+  category: '',
+  dataSourceType: 'SQL',
+  dataSourceValue: '',
+  parameters: '', // Add this line
+  accessRoles: '',
+  isActive: true
+});
+
+
+const reportData = {
+  reportName: formData.reportName.trim(),
+  description: formData.description?.trim() || null,
+  category: formData.category?.trim() ||null,
+  dataSourceType: formData.dataSourceType,
+  dataSourceValue: formData.dataSourceValue.trim(),
+  parameters: formData.parameters?.trim() || "", // Update this line
+  layoutSettings: "", 
+  accessRoles: accessRolesFormatted,
+  isActive: formData.isActive
+};
+
+
+
+// Add this method to your ReportService class
+
+private async Task CreateParametersFromStringAsync(IDbConnection connection, int reportId, string parametersString)
+{
+    if (string.IsNullOrWhiteSpace(parametersString))
+        return;
+
+    var parameterNames = parametersString.Split(',')
+        .Select(p => p.Trim())
+        .Where(p => !string.IsNullOrEmpty(p))
+        .ToList();
+
+    if (!parameterNames.Any())
+        return;
+
+    var parameterSql = @"
+        INSERT INTO SnehaReportParameters 
+        (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+         IsRequired, ValidationRule, DropdownOptions)
+        VALUES 
+        (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+         @IsRequired, @ValidationRule, @DropdownOptions)";
+
+    foreach (var paramName in parameterNames)
+    {
+        var parameter = new
+        {
+            ReportId = reportId,
+            ParameterName = paramName,
+            DisplayName = $"Enter {paramName}",
+            ParameterType = "Textbox",
+            DefaultValue = (string)null,
+            IsRequired = true,
+            ValidationRule = (string)null,
+            DropdownOptions = (string)null
+        };
+
+        await connection.ExecuteAsync(parameterSql, parameter);
+    }
+}
+
+
+
+
+public async Task<int> CreateReportAsync(ReportDefinition report)
+{
+    try
+    {
+        using var connection = _databaseService.GetConnection();
+        
+        var sql = @"
+            INSERT INTO SnehaReportDefinitions 
+            (ReportName, Description, Category, DataSourceType, DataSourceValue, 
+             Parameters, LayoutSettings, AccessRoles, IsActive, CreatedDate, ModifiedDate)
+            OUTPUT INSERTED.ReportId
+            VALUES 
+            (@ReportName, @Description, @Category, @DataSourceType, @DataSourceValue, 
+             @Parameters, @LayoutSettings, @AccessRoles, @IsActive, GETDATE(), GETDATE())";
+        
+        var reportId = await connection.QuerySingleAsync<int>(sql, report);
+        
+        // Create parameters from comma-separated string if provided
+        if (!string.IsNullOrWhiteSpace(report.Parameters))
+        {
+            await CreateParametersFromStringAsync(connection, reportId, report.Parameters);
+        }
+        
+        // Insert additional parameters if any (from ReportParameters collection)
+        if (report.ReportParameters?.Any() == true)
+        {
+            var parameterSql = @"
+                INSERT INTO SnehaReportParameters 
+                (ReportId, ParameterName, DisplayName, ParameterType, DefaultValue, 
+                 IsRequired, ValidationRule, DropdownOptions)
+                VALUES 
+                (@ReportId, @ParameterName, @DisplayName, @ParameterType, @DefaultValue, 
+                 @IsRequired, @ValidationRule, @DropdownOptions)";
+            
+            foreach (var param in report.ReportParameters)
+            {
+                param.ReportId = reportId;
+                await connection.ExecuteAsync(parameterSql, param);
+            }
+        }
+        
+        return reportId;
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error creating report: {ReportName}", report.ReportName);
+        throw;
+    }
+}
